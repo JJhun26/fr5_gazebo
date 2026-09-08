@@ -1,0 +1,8 @@
+fr5_arm:
+  # KDL을 쓴다. 공식 fairino5_v6_moveit2_config와 같은 선택이다.
+  # 해석해가 있는 IKFast를 붙이면 더 빠르지만, 석션 TCP 오프셋이 바뀔 때마다
+  # 다시 생성해야 한다. 데모 규모에서는 KDL로 충분하다.
+  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  kinematics_solver_search_resolution: 0.005
+  kinematics_solver_timeout: 0.02
+  kinematics_solver_attempts: 5

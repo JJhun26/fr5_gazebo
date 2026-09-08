@@ -1,0 +1,165 @@
+<?xml version="1.0"?>
+<!--
+  Intel RealSense 카메라. 기종별 제원은 config/realsense.yaml 하나에서 온다.
+
+  프레임 규약은 realsense2_description을 따른다.
+    <name>_link                 몸통. +x = 광축, +y = 좌, +z = 상.
+    <name>_depth_frame          깊이 좌측 이미저
+    <name>_color_frame          컬러 이미저 (깊이에서 offset_y 만큼 좌)
+    <name>_depth_optical_frame  광학 프레임. +z = 광축, +x = 영상 오른쪽, +y = 영상 아래.
+    <name>_color_optical_frame  같음
+  ROS 영상의 frame_id는 광학 프레임이다.
+
+  토픽 이름에 /image를 붙이는 이유가 있다. gz-sensors는 카메라 정보 토픽을
+  만들 때 이미지 토픽의 마지막 구간을 떼고 /camera_info를 붙인다.
+  토픽을 "/c1_conveyor/color"로 두면 정보는 "/c1_conveyor/camera_info"로 가서
+  ROS 관례(<카메라>/color/camera_info)와 어긋나고, 같은 카메라의 깊이 센서와도
+  이름이 겹친다. "/c1_conveyor/color/image"로 두면 정보가 정확히
+  "/c1_conveyor/color/camera_info"로 떨어진다.
+
+  Gazebo 센서는 <name>_link에 매단다. 광학 프레임 링크는 질량이 없어서
+  SDF 변환 때 부모로 합쳐지는데, 센서를 거기 매달면 따라 옮겨 다니느라
+  포즈를 추적하기 어렵다. 대신 gz_frame_id로 메시지의 frame_id만 광학
+  프레임 이름으로 박아 둔다. gz 센서의 광축도 +x라 <name>_link와 일치한다.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:property name="rs_db" value="${xacro.load_yaml('$(find box_cell_description)/config/realsense.yaml')}"/>
+  <!-- 광학 프레임은 몸통 프레임을 이렇게 돌린 것이다. -->
+  <xacro:property name="optical_rpy" value="${-pi/2} 0 ${-pi/2}"/>
+
+  <!--
+    stream : 시뮬레이터가 실제로 렌더링할 것을 정한다. 비워 두면 하드웨어
+    제원(realsense.yaml) 그대로 돈다. cell.yaml의 cameras.<key>.stream이
+    이 값을 넘긴다. 형상과 화각은 언제나 실제 제원을 쓰고, 갱신률과 깊이
+    사용 여부만 여기서 갈린다.
+  -->
+  <xacro:macro name="realsense"
+               params="name model parent *origin simulate:=true stream:=^|None">
+
+    <xacro:property name="spec"  value="${rs_db[model]}"/>
+    <xacro:property name="body"  value="${spec['body']}"/>
+    <xacro:property name="color" value="${spec['color']}"/>
+    <xacro:property name="depth" value="${spec['depth']}"/>
+
+    <xacro:property name="color_rate"
+        value="${stream['color_rate'] if stream and 'color_rate' in stream else color['rate']}"/>
+    <xacro:property name="use_depth"
+        value="${(depth is not None) and (stream['depth'] if stream and 'depth' in stream else True)}"/>
+    <xacro:property name="depth_rate"
+        value="${stream['depth_rate'] if stream and 'depth_rate' in stream else (depth['rate'] if depth else 0)}"/>
+
+    <joint name="${name}_mount" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}_link"/>
+      <xacro:insert_block name="origin"/>
+    </joint>
+
+    <link name="${name}_link">
+      <visual>
+        <origin xyz="${-body[0]/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${body[0]} ${body[1]} ${body[2]}"/></geometry>
+        <material name="realsense_mat"><color rgba="0.10 0.10 0.12 1"/></material>
+      </visual>
+      <collision>
+        <origin xyz="${-body[0]/2} 0 0" rpy="0 0 0"/>
+        <geometry><box size="${body[0]} ${body[1]} ${body[2]}"/></geometry>
+      </collision>
+      <inertial>
+        <origin xyz="${-body[0]/2} 0 0" rpy="0 0 0"/>
+        <mass value="${spec['mass']}"/>
+        <inertia
+          ixx="${spec['mass']*(body[1]*body[1]+body[2]*body[2])/12}" ixy="0" ixz="0"
+          iyy="${spec['mass']*(body[0]*body[0]+body[2]*body[2])/12}" iyz="0"
+          izz="${spec['mass']*(body[0]*body[0]+body[1]*body[1])/12}"/>
+      </inertial>
+    </link>
+
+    <joint name="${name}_color_joint" type="fixed">
+      <parent link="${name}_link"/>
+      <child link="${name}_color_frame"/>
+      <origin xyz="0 ${color['offset_y']} 0" rpy="0 0 0"/>
+    </joint>
+    <link name="${name}_color_frame"/>
+
+    <joint name="${name}_color_optical_joint" type="fixed">
+      <parent link="${name}_color_frame"/>
+      <child link="${name}_color_optical_frame"/>
+      <origin xyz="0 0 0" rpy="${optical_rpy}"/>
+    </joint>
+    <link name="${name}_color_optical_frame"/>
+
+    <xacro:if value="${use_depth}">
+      <joint name="${name}_depth_joint" type="fixed">
+        <parent link="${name}_link"/>
+        <child link="${name}_depth_frame"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+      </joint>
+      <link name="${name}_depth_frame"/>
+
+      <joint name="${name}_depth_optical_joint" type="fixed">
+        <parent link="${name}_depth_frame"/>
+        <child link="${name}_depth_optical_frame"/>
+        <origin xyz="0 0 0" rpy="${optical_rpy}"/>
+      </joint>
+      <link name="${name}_depth_optical_frame"/>
+    </xacro:if>
+
+    <xacro:if value="${simulate}">
+      <gazebo reference="${name}_link">
+        <sensor name="${name}_color" type="camera">
+          <pose>0 ${color['offset_y']} 0 0 0 0</pose>
+          <topic>/${name}/color/image</topic>
+          <gz_frame_id>${name}_color_optical_frame</gz_frame_id>
+          <update_rate>${color_rate}</update_rate>
+          <always_on>1</always_on>
+          <visualize>false</visualize>
+          <camera>
+            <horizontal_fov>${radians(color['hfov_deg'])}</horizontal_fov>
+            <image>
+              <width>${color['width']}</width>
+              <height>${color['height']}</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip><near>0.05</near><far>12.0</far></clip>
+            <noise>
+              <type>gaussian</type>
+              <mean>0.0</mean>
+              <stddev>${color['noise_stddev']}</stddev>
+            </noise>
+          </camera>
+        </sensor>
+
+        <xacro:if value="${use_depth}">
+          <sensor name="${name}_depth" type="depth_camera">
+            <pose>0 0 0 0 0 0</pose>
+            <topic>/${name}/depth/image</topic>
+            <gz_frame_id>${name}_depth_optical_frame</gz_frame_id>
+            <update_rate>${depth_rate}</update_rate>
+            <always_on>1</always_on>
+            <visualize>false</visualize>
+            <camera>
+              <horizontal_fov>${radians(depth['hfov_deg'])}</horizontal_fov>
+              <image>
+                <width>${depth['width']}</width>
+                <height>${depth['height']}</height>
+                <format>R_FLOAT32</format>
+              </image>
+              <!-- 실물의 유효 거리. 밖은 실물처럼 값이 안 나오게 자른다. -->
+              <clip>
+                <near>${depth['range'][0]}</near>
+                <far>${depth['range'][1]}</far>
+              </clip>
+              <noise>
+                <type>gaussian</type>
+                <mean>0.0</mean>
+                <stddev>${depth['noise_stddev']}</stddev>
+              </noise>
+            </camera>
+          </sensor>
+        </xacro:if>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+</robot>

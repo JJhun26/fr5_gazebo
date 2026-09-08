@@ -1,0 +1,78 @@
+# ros2_control 컨트롤러 설정. gz_ros2_control, mock, 실물이 이 파일을 함께 쓴다.
+#
+# update_rate를 100 Hz로 둔 것은 실물 FR5 컨트롤러의 관절 갱신 주기(8 ms 전후,
+# TCP 20004)에 맞추기 위해서다. 시뮬레이터만 250 Hz로 돌리면 실물에서
+# 재현되지 않는 매끄러움이 나오고, 그러면 시뮬레이터로 검증한 뜻이 없어진다.
+
+# gz_ros2_control 플러그인의 노드. controller_manager와 다른 노드다
+# (gz_ros2_control_plugin.cpp의 node_name = "gz_ros_control").
+# 같은 파라미터 파일을 읽지만 자기 이름 아래 있는 것만 본다.
+# gz_ros2_control 플러그인의 노드. controller_manager와 다른 노드다
+# (gz_ros2_control_plugin.cpp의 node_name = "gz_ros_control").
+# 같은 파라미터 파일을 읽지만 자기 이름 아래 있는 것만 본다.
+gz_ros_control:
+  ros__parameters:
+    # 위치 명령을 관절 속도 명령으로 바꾸는 이득. gz_system.cpp의 계산은
+    #
+    #     target_vel = gain * update_rate * (목표 - 현재)
+    #
+    # 이다. update_rate가 이미 곱해져 있다는 것이 요점이다. 그래서 이 값은
+    # "한 제어 주기에 남은 오차의 몇 배를 없앨 것인가"라는 뜻이고,
+    # 1.0이 데드비트(한 주기에 정확히 0으로)다.
+    #
+    #   0.1 (기본값) : 한 주기에 10 %만 없앤다. 속도 v로 따라갈 때 정상
+    #                  오차가 v / 10 이다. 이송 속도 1.1 rad/s에서 0.11 rad이라
+    #                  아래 trajectory 허용치 0.10을 그냥 넘긴다. 실제로
+    #                  "Position Error: -0.100759"로 실행이 중단됐다.
+    #   50           : 실효 이득이 5000이 된다. 0.0006 rad만 벌어져도 속도
+    #                  명령이 3 rad/s로 관절 한계에 붙는다. 매 주기 방향이
+    #                  뒤집혀 팔이 8~18도 폭으로 덜덜 떤다(실측).
+    #   0.9          : 한 주기에 90 %를 없앤다. 1.1 rad/s에서 정상 오차가
+    #                  0.012 rad이라 시작 허용치 0.02 안에 들어오고,
+    #                  1.0을 넘지 않으므로 과도하게 넘어가지 않는다.
+    position_proportional_gain: 0.9
+
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+
+
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+    joint_trajectory_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+
+joint_trajectory_controller:
+  ros__parameters:
+    joints:
+      - j1
+      - j2
+      - j3
+      - j4
+      - j5
+      - j6
+    command_interfaces:
+      - position
+    state_interfaces:
+      - position
+      - velocity
+    # 전시 데모는 매번 같은 경로가 나와야 안정적으로 보인다.
+    # 허용 오차를 열어 두면 살짝 어긋난 채로 진행해 궤적이 매번 달라진다.
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 0.5
+      j1: {trajectory: 0.10, goal: 0.02}
+      j2: {trajectory: 0.10, goal: 0.02}
+      j3: {trajectory: 0.10, goal: 0.02}
+      j4: {trajectory: 0.10, goal: 0.02}
+      j5: {trajectory: 0.10, goal: 0.02}
+      j6: {trajectory: 0.10, goal: 0.02}
+    action_monitor_rate: 20.0
+    allow_partial_joints_goal: false
+    open_loop_control: false
+
+joint_state_broadcaster:
+  ros__parameters:
+    joints: [j1, j2, j3, j4, j5, j6]
+    interfaces: [position, velocity]

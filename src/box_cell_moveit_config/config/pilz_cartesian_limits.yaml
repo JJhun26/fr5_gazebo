@@ -1,0 +1,8 @@
+# Pilz LIN/PTP의 직교 공간 한계.
+# 하강과 이탈 구간의 실제 속도는 motion_server가 cell.yaml의
+# tuning.cartesian_speed(0.10 m/s)로 다시 잡는다. 여기 값은 상한이다.
+cartesian_limits:
+  max_trans_vel: 0.5
+  max_trans_acc: 1.5
+  max_trans_dec: -2.0
+  max_rot_vel: 1.0

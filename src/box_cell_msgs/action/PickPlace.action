@@ -1,0 +1,22 @@
+# 접근, 파지, 이탈, 이송, 적재, 복귀를 한 액션으로 묶는다.
+# 상위 로직이 계획 세부를 몰라도 되게 하는 것이 목적이다(기획서 5.1).
+#
+# 한 사이클의 아홉 구간 중 이 액션이 2~9를 담당한다.
+#   2,4 박스 상면 수직 하강/이탈   Cartesian 직선
+#   3,7 흡착/해제                 밸브 제어만
+#   5   판독 상공 -> 팔레트 상공    MoveIt2
+#   6,8 적재 자리 하강/이탈        MoveIt2 Cartesian + 충돌 검사
+#   9   상공 -> 대기 자세          고정 웨이포인트 PTP
+
+geometry_msgs/Pose  pick_pose
+geometry_msgs/Pose  place_pose
+float64             approach_height     # 목표 상면 위 접근 높이. 기본 0.06.
+string              pick_object         # 파지 대상 이름. Planning Scene 부착에 쓴다.
+bool                return_home         # 마지막에 대기 자세로 돌아갈 것인가
+---
+bool    success
+string  msg
+float64 duration_sec
+---
+string  phase           # APPROACH / DESCEND / GRASP / RETREAT / TRANSIT / PLACE / RELEASE / HOME
+float64 progress        # 0..1

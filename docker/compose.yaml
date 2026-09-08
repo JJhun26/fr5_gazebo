@@ -1,0 +1,54 @@
+# 개발용. 소스를 마운트해 두면 컨테이너를 다시 굽지 않고 고칠 수 있다.
+#
+#   docker compose -f docker/compose.yaml build
+#   xhost +local:docker
+#   docker compose -f docker/compose.yaml run --rm sim
+#
+# GPU가 잡히지 않으면 deploy: 블록을 지운다. 소프트웨어 렌더링으로 떨어지고
+# 느려지지만 동작은 같다.
+
+services:
+  sim:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: box_cell_sim:jazzy-harmonic
+    # DDS 디스커버리를 위해 host 네트워크를 쓴다. 기획서 4절과 같은 이유다.
+    network_mode: host
+    ipc: host
+    privileged: false
+    environment:
+      - DISPLAY=${DISPLAY}
+      - XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp}
+      - QT_X11_NO_MITSHM=1
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      # Wayland 호스트에서 GLX가 mesa로 떨어지는 것을 막는다. Dockerfile 주석 참고.
+      - __GLX_VENDOR_LIBRARY_NAME=nvidia
+      - ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ../src:/ws/src:rw
+      - ../tools:/ws/tools:ro
+      - box_cell_data:/tmp/box_cell
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true
+
+  # MES 서버만 따로 띄우고 싶을 때. 대시보드는 http://localhost:8020
+  mes:
+    image: box_cell_sim:jazzy-harmonic
+    network_mode: host
+    command: python3 /ws/src/box_cell_mes/box_cell_mes/server.py --port 8020
+    volumes:
+      - ../src:/ws/src:rw
+      - box_cell_data:/tmp/box_cell
+
+volumes:
+  box_cell_data:

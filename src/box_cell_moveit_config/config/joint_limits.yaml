@@ -1,0 +1,20 @@
+# URDF의 한계를 덮어쓰거나 보탠다.
+#
+# 기본 배율을 0.35로 둔 이유는 전시다. 사람 옆에서 도는 협동로봇이 최대
+# 속도로 움직이면 관람객이 물러선다. 사이클 20초 안에 들어오는 선에서
+# 가장 느리게 잡는다. 실측 후 조정할 값이다(기획서 E6 사이클 타임 측정).
+#
+# max_acceleration은 기종의 능력으로 둔다. 처음에 2.0으로 낮춰 잡았더니
+# Pilz LIN이 만든 직교 경로가 그 한계를 넘어 계획 자체가 실패했다
+# ("Joint acceleration limit of j1 violated"). 느리게 보이게 하는 일은
+# 한계가 아니라 위의 배율이 해야 한다. 한계를 깎으면 계획이 죽는다.
+default_velocity_scaling_factor: 0.35
+default_acceleration_scaling_factor: 0.35
+
+joint_limits:
+  j1: {has_velocity_limits: true, max_velocity: 3.15, has_acceleration_limits: true, max_acceleration: 5.0}
+  j2: {has_velocity_limits: true, max_velocity: 3.15, has_acceleration_limits: true, max_acceleration: 5.0}
+  j3: {has_velocity_limits: true, max_velocity: 3.15, has_acceleration_limits: true, max_acceleration: 5.0}
+  j4: {has_velocity_limits: true, max_velocity: 3.20, has_acceleration_limits: true, max_acceleration: 8.0}
+  j5: {has_velocity_limits: true, max_velocity: 3.20, has_acceleration_limits: true, max_acceleration: 8.0}
+  j6: {has_velocity_limits: true, max_velocity: 3.20, has_acceleration_limits: true, max_acceleration: 8.0}

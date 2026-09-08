@@ -1,0 +1,205 @@
+<?xml version="1.0"?>
+<!--
+  Gazebo Harmonic 월드. 셀 자체는 여기 없다. 로봇과 셀 구조물은 URDF에서
+  스폰되고, 이 파일은 바닥, 물리, 빛, 그리고 시스템 플러그인만 담당한다.
+
+  조명 위치는 cell.yaml의 lighting: 블록에서 온다. 구조물 쪽 형상(조명 바)과
+  실제 빛이 어긋나면 시뮬레이터에서 잡은 판독률이 실물에서 안 나온다.
+
+  물리 스텝 1 ms는 협동로봇 셀에 필요한 것보다 촘촘하다. 이유는 석션이다.
+  DetachableJoint가 붙는 순간의 상대 자세가 그대로 고정 조인트가 되므로,
+  스텝이 굵으면 박스가 한 프레임 미끄러진 채로 붙어 적재 위치가 흔들린다.
+-->
+<sdf version="1.10" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <world name="box_cell">
+
+    <xacro:property name="cell" value="${xacro.load_yaml('$(find box_cell_description)/config/cell.yaml')}"/>
+    <xacro:property name="lit" value="${cell['lighting']}"/>
+    <xacro:property name="H"   value="${cell['frame']['table_top_height']}"/>
+
+    <xacro:property name="dt" value="${cell['simulation']['physics_step']}"/>
+    <physics name="fixed_step" type="dart">
+      <max_step_size>${dt}</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+      <real_time_update_rate>${1.0/dt}</real_time_update_rate>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+    <!-- 컨베이어가 이걸로 박스를 민다. 벨트 표면 속도를 흉내 내는 gz 시스템이
+         없으므로, conveyor_driver가 박스 속도를 읽고 힘을 실어 벨트 속도를
+         따라가게 한다. 텔레포트로 옮기면 물리가 깨져서 석션이 못 잡는다. -->
+    <plugin filename="gz-sim-apply-link-wrench-system"
+            name="gz::sim::systems::ApplyLinkWrench"/>
+    <!-- 카메라 4대가 여기서 돈다. ogre2가 아니면 RealSense 화질이 안 나온다. -->
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+      <background_color>0.85 0.87 0.90</background_color>
+    </plugin>
+
+    <scene>
+      <ambient>0.55 0.55 0.58 1</ambient>
+      <background>0.85 0.87 0.90 1</background>
+      <grid>false</grid>
+      <shadows>true</shadows>
+    </scene>
+
+    <gravity>0 0 -9.80665</gravity>
+
+    <!-- 실내 천장등. 셀 전체를 고르게 받친다. -->
+    <light type="directional" name="ceiling">
+      <pose>0.6 0.4 3.0 0 0 0</pose>
+      <diffuse>0.75 0.75 0.75 1</diffuse>
+      <specular>0.15 0.15 0.15 1</specular>
+      <direction>-0.25 -0.35 -0.90</direction>
+      <cast_shadows>true</cast_shadows>
+      <attenuation>
+        <range>20</range>
+        <constant>0.9</constant>
+        <linear>0.01</linear>
+        <quadratic>0.001</quadratic>
+      </attenuation>
+    </light>
+
+    <!-- 판독 구간 저각 바 2개.
+         C1의 광축은 x로 기울어 있으므로 조명은 y 양쪽에 둔다.
+         같은 방향에서 비추면 라벨 정반사가 그대로 렌즈로 돌아온다. -->
+    <xacro:macro name="read_light" params="name y">
+      <light type="spot" name="${name}">
+        <pose>${lit['center_x']} ${y} ${H + lit['z']} 0 0 0</pose>
+        <diffuse>1.0 0.99 0.95 1</diffuse>
+        <specular>0.3 0.3 0.3 1</specular>
+        <!-- 판독 위치를 비스듬히 내려다본다. 저각으로 스쳐야 라벨 인쇄면의
+             굴곡이 드러나고 정반사 스팟이 렌즈 밖으로 빠진다. -->
+        <direction>0 ${(cell['read_station']['center'][1] - y)} ${-(lit['z'] - cell['conveyor']['belt']['surface_z'])}</direction>
+        <spot>
+          <inner_angle>${radians(lit['cone_deg']) * 0.5}</inner_angle>
+          <outer_angle>${radians(lit['cone_deg'])}</outer_angle>
+          <falloff>1.2</falloff>
+        </spot>
+        <attenuation>
+          <range>3.0</range>
+          <constant>0.4</constant>
+          <linear>0.2</linear>
+          <quadratic>0.05</quadratic>
+        </attenuation>
+        <cast_shadows>false</cast_shadows>
+      </light>
+    </xacro:macro>
+    <xacro:read_light name="read_light_near" y="${lit['y_near']}"/>
+    <xacro:read_light name="read_light_far"  y="${lit['y_far']}"/>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+          <surface>
+            <friction><ode><mu>0.9</mu><mu2>0.9</mu2></ode></friction>
+          </surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>20 20</size></plane></geometry>
+          <material>
+            <ambient>0.42 0.44 0.46 1</ambient>
+            <diffuse>0.48 0.50 0.52 1</diffuse>
+            <specular>0.05 0.05 0.05 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 관람 시점. 기획서 표지 렌더와 같은 방향에서 셀을 본다. -->
+    <gui fullscreen="0">
+      <plugin filename="MinimalScene" name="3D View">
+        <gz-gui>
+          <title>box_cell</title>
+          <property type="bool" key="showTitleBar">false</property>
+        </gz-gui>
+        <engine>ogre2</engine>
+        <scene>scene</scene>
+        <ambient_light>0.55 0.55 0.58</ambient_light>
+        <background_color>0.85 0.87 0.90</background_color>
+        <camera_pose>-0.9 -1.1 2.0 0 0.62 0.72</camera_pose>
+      </plugin>
+      <!-- 아래 셋은 눈에 보일 필요가 없는 보조 플러그인이다.
+           GzSceneManager        서버의 씬 변화를 화면에 반영한다
+           InteractiveViewControl 마우스로 시점을 돌리게 해 준다
+           CameraTracking        시점 추적/이동 서비스를 연다
+           <gz-gui> 블록을 주지 않으면 오른쪽 도크에 카드로 붙어서
+           자기 설명문을 그대로 뿌린다. 5x5 투명 위젯으로 숨긴다. -->
+      <plugin filename="GzSceneManager" name="Scene Manager">
+        <gz-gui>
+          <property key="resizable" type="bool">false</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="InteractiveViewControl" name="Interactive view control">
+        <gz-gui>
+          <property key="resizable" type="bool">false</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="CameraTracking" name="Camera Tracking">
+        <gz-gui>
+          <property key="resizable" type="bool">false</property>
+          <property key="width" type="double">5</property>
+          <property key="height" type="double">5</property>
+          <property key="state" type="string">floating</property>
+          <property key="showTitleBar" type="bool">false</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="WorldControl" name="World control">
+        <gz-gui>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">72</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="left" target="left"/>
+            <line own="bottom" target="bottom"/>
+          </anchors>
+        </gz-gui>
+        <play_pause>true</play_pause>
+        <step>true</step>
+        <use_event>true</use_event>
+      </plugin>
+      <plugin filename="WorldStats" name="World stats">
+        <gz-gui>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="width">250</property>
+          <property type="double" key="height">110</property>
+          <property type="string" key="state">floating</property>
+          <anchors target="3D View">
+            <line own="right" target="right"/>
+            <line own="bottom" target="bottom"/>
+          </anchors>
+        </gz-gui>
+        <sim_time>true</sim_time>
+        <real_time>true</real_time>
+        <real_time_factor>true</real_time_factor>
+      </plugin>
+      <plugin filename="ImageDisplay" name="C1 conveyor">
+        <gz-gui>
+          <property type="double" key="width">380</property>
+          <property type="double" key="height">280</property>
+          <property type="string" key="state">floating</property>
+        </gz-gui>
+        <topic>/c1_conveyor/color</topic>
+      </plugin>
+    </gui>
+
+  </world>
+</sdf>

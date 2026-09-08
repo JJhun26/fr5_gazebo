@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!--
+  MoveIt이 읽는 robot_description. box_cell_description의 것을 그대로 부른다.
+  moveit_configs_utils.MoveItConfigsBuilder가 config/<이름>.urdf.xacro를
+  찾으므로 여기에 얇은 껍데기를 하나 둔다. 치수는 여전히 cell.yaml 하나뿐이다.
+-->
+<robot name="box_cell" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:arg name="hardware" default="gazebo"/>
+  <xacro:arg name="robot_ip" default="192.168.58.2"/>
+  <xacro:include filename="$(find box_cell_description)/urdf/box_cell_robot.urdf.xacro"/>
+</robot>

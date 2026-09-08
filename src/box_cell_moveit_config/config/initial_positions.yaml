@@ -1,0 +1,8 @@
+# mock 하드웨어의 기동 자세. cell.yaml의 tuning.home_joints와 같다.
+initial_positions:
+  j1: 0.0
+  j2: -1.5708
+  j3: 1.5708
+  j4: -1.5708
+  j5: -1.5708
+  j6: 0.0

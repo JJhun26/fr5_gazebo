@@ -1,0 +1,88 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded: [/Global Options1, /RobotModel1, /Cell1]
+      Splitter Ratio: 0.5
+    Tree Height: 700
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 0.1
+      Plane Cell Count: 20
+      Color: 160; 160; 164
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Topic:
+        Value: /robot_description
+      Alpha: 1
+    - Class: rviz_default_plugins/RobotModel
+      Name: Cell
+      Enabled: true
+      Description Topic:
+        Value: /cell/robot_description
+      Alpha: 0.9
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: false
+      Marker Scale: 0.15
+      Show Names: true
+    - Class: moveit_rviz_plugin/PlanningScene
+      Name: PlanningScene
+      Enabled: true
+      Move Group Namespace: ""
+      Planning Scene Topic: /monitored_planning_scene
+      Scene Geometry:
+        Scene Alpha: 0.6
+        Show Scene Geometry: true
+    - Class: rviz_default_plugins/Image
+      Name: C1 conveyor
+      Enabled: true
+      Topic:
+        Value: /c1_conveyor/color/image_raw
+        Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/Image
+      Name: C1 debug
+      Enabled: true
+      Topic:
+        Value: /perception/c1_conveyor/debug
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Image
+      Name: C2 pallet
+      Enabled: false
+      Topic:
+        Value: /c2_pallet/color/image_raw
+        Reliability Policy: Best Effort
+    - Class: rviz_default_plugins/PointCloud2
+      Name: C2 depth
+      Enabled: false
+      Topic:
+        Value: /c2_pallet/depth/points
+        Reliability Policy: Best Effort
+      Size (m): 0.004
+      Style: Points
+  Global Options:
+    Background Color: 220; 224; 228
+    Fixed Frame: world
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Current View
+      Distance: 2.4
+      Focal Point: {X: 0.6, Y: 0.4, Z: 0.85}
+      Pitch: 0.55
+      Yaw: 2.4
+Window Geometry:
+  Height: 1000
+  Width: 1600
+  Displays: {collapsed: false}

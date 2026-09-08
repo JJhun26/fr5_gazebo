@@ -1,0 +1,283 @@
+<?xml version="1.0"?>
+<!--
+  셀 구조물. 로봇을 뺀 나머지 전부 : 상판, 다리, 컨베이어, 팔레트 두 장,
+  예외 통, 카메라 갠트리, 조명 바, 그리고 갠트리에 달린 카메라 3대.
+
+  치수는 전부 config/cell.yaml에서 온다. 여기에 숫자를 직접 적지 않는다.
+
+  로봇과 따로 둔 이유 :
+    - Gazebo에서 이건 static 모델이다. 물리 계산에서 빠진다.
+    - MoveIt은 이것을 로봇 링크가 아니라 Planning Scene 충돌체로 알아야 한다
+      (기획서 5.2). scene_publisher가 같은 cell.yaml을 읽어 등록한다.
+    - 따로 robot_state_publisher를 물려 두면 갠트리 카메라의 TF가 공짜로 나온다.
+
+  좌표계 : cell.yaml의 table 좌표계. 원점은 상판 좌측 하단 모서리의 상면,
+  +x = 폭 1200 방향, +y = 깊이 800 방향, +z = 위. world와는 z만 750 차이다.
+-->
+<robot name="box_cell_furniture" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="cell_yaml" default="$(find box_cell_description)/config/cell.yaml"/>
+  <xacro:property name="cell" value="${xacro.load_yaml('$(arg cell_yaml)')}"/>
+
+  <xacro:include filename="$(find box_cell_description)/urdf/realsense_macro.xacro"/>
+
+  <xacro:property name="tbl"   value="${cell['table']}"/>
+  <xacro:property name="conv"  value="${cell['conveyor']}"/>
+  <xacro:property name="pal"   value="${cell['pallet']}"/>
+  <xacro:property name="bin_"  value="${cell['exception_bin']}"/>
+  <xacro:property name="gan"   value="${cell['gantry']}"/>
+  <xacro:property name="th"    value="${tbl['top_thickness']}"/>
+  <xacro:property name="H"     value="${cell['frame']['table_top_height']}"/>
+
+  <!-- 구조물 밀도. 강재 프레임과 알루미늄 판의 중간쯤으로 잡는다.
+       static 모델이라 물리에 쓰이지 않지만 URDF가 관성을 요구한다. -->
+  <xacro:property name="rho" value="2000"/>
+
+  <xacro:macro name="cell_box" params="name sx sy sz x y z rgba parent:='cell_base' collide:=true">
+    <xacro:property name="m" value="${rho*sx*sy*sz}"/>
+    <link name="${name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry><box size="${sx} ${sy} ${sz}"/></geometry>
+        <material name="${name}_mat"><color rgba="${rgba}"/></material>
+      </visual>
+      <xacro:if value="${collide}">
+        <collision>
+          <origin xyz="0 0 0" rpy="0 0 0"/>
+          <geometry><box size="${sx} ${sy} ${sz}"/></geometry>
+        </collision>
+      </xacro:if>
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="${m}"/>
+        <inertia ixx="${m*(sy*sy+sz*sz)/12}" ixy="0" ixz="0"
+                 iyy="${m*(sx*sx+sz*sz)/12}" iyz="0"
+                 izz="${m*(sx*sx+sy*sy)/12}"/>
+      </inertial>
+    </link>
+    <joint name="${name}_fix" type="fixed">
+      <parent link="${parent}"/>
+      <child link="${name}"/>
+      <origin xyz="${x} ${y} ${z}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- ================= 기준 프레임 ================= -->
+  <link name="world"/>
+  <link name="cell_base"/>
+  <joint name="cell_base_fix" type="fixed">
+    <parent link="world"/>
+    <child link="cell_base"/>
+    <origin xyz="0 0 ${H}" rpy="0 0 0"/>
+  </joint>
+
+  <!-- ================= 상판 =================
+       받침 개구 400 각을 실제로 뚫는다. 판을 네 조각으로 나눠 만든다.
+       개구는 배선과 티칭 여유 때문에 300에서 400으로 정정된 값이다. -->
+  <xacro:property name="op"   value="${tbl['opening']}"/>
+  <xacro:property name="ox0"  value="${op['center'][0] - op['size']/2}"/>
+  <xacro:property name="ox1"  value="${op['center'][0] + op['size']/2}"/>
+  <xacro:property name="oy0"  value="${op['center'][1] - op['size']/2}"/>
+  <xacro:property name="oy1"  value="${op['center'][1] + op['size']/2}"/>
+  <xacro:property name="top_rgba" value="0.93 0.94 0.95 1"/>
+
+  <xacro:cell_box name="table_top_left"  sx="${ox0}" sy="${tbl['size_y']}" sz="${th}"
+      x="${ox0/2}" y="${tbl['size_y']/2}" z="${-th/2}" rgba="${top_rgba}"/>
+  <xacro:cell_box name="table_top_right" sx="${tbl['size_x']-ox1}" sy="${tbl['size_y']}" sz="${th}"
+      x="${(tbl['size_x']+ox1)/2}" y="${tbl['size_y']/2}" z="${-th/2}" rgba="${top_rgba}"/>
+  <xacro:cell_box name="table_top_front" sx="${ox1-ox0}" sy="${oy0}" sz="${th}"
+      x="${(ox0+ox1)/2}" y="${oy0/2}" z="${-th/2}" rgba="${top_rgba}"/>
+  <xacro:cell_box name="table_top_back"  sx="${ox1-ox0}" sy="${tbl['size_y']-oy1}" sz="${th}"
+      x="${(ox0+ox1)/2}" y="${(tbl['size_y']+oy1)/2}" z="${-th/2}" rgba="${top_rgba}"/>
+
+  <!-- 개구를 덮는 받침판. 상면이 상판과 같은 높이라 로봇 베이스가 z=0에 앉는다.
+       기획서의 도달 거리(414, 554, 603, 369)가 이 평면 기준이다. -->
+  <xacro:cell_box name="robot_mount_plate" sx="${op['size']}" sy="${op['size']}" sz="0.012"
+      x="${op['center'][0]}" y="${op['center'][1]}" z="-0.006" rgba="0.55 0.57 0.60 1"/>
+
+  <!-- ================= 다리, 선반, 캐스터 ================= -->
+  <xacro:property name="leg"   value="${tbl['leg']['section']}"/>
+  <xacro:property name="inset" value="${tbl['leg']['inset']}"/>
+  <xacro:property name="cr"    value="${tbl['caster_radius']}"/>
+  <xacro:property name="leg_top" value="${-th}"/>
+  <xacro:property name="leg_bot" value="${-H + 2*cr}"/>
+  <xacro:property name="leg_len" value="${leg_top - leg_bot}"/>
+
+  <xacro:macro name="table_leg" params="id x y">
+    <xacro:cell_box name="table_leg_${id}" sx="${leg}" sy="${leg}" sz="${leg_len}"
+        x="${x}" y="${y}" z="${(leg_top+leg_bot)/2}" rgba="0.35 0.37 0.40 1"/>
+    <link name="caster_${id}">
+      <visual>
+        <geometry><sphere radius="${cr}"/></geometry>
+        <material name="caster_mat"><color rgba="0.12 0.12 0.14 1"/></material>
+      </visual>
+      <collision><geometry><sphere radius="${cr}"/></geometry></collision>
+      <inertial><mass value="0.4"/><inertia ixx="4e-4" iyy="4e-4" izz="4e-4" ixy="0" ixz="0" iyz="0"/></inertial>
+    </link>
+    <joint name="caster_${id}_fix" type="fixed">
+      <parent link="cell_base"/>
+      <child link="caster_${id}"/>
+      <origin xyz="${x} ${y} ${-H + cr}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+  <xacro:property name="lx0" value="${inset + leg/2}"/>
+  <xacro:property name="lx1" value="${tbl['size_x'] - inset - leg/2}"/>
+  <xacro:property name="ly0" value="${inset + leg/2}"/>
+  <xacro:property name="ly1" value="${tbl['size_y'] - inset - leg/2}"/>
+  <xacro:table_leg id="fl" x="${lx0}" y="${ly0}"/>
+  <xacro:table_leg id="fr" x="${lx1}" y="${ly0}"/>
+  <xacro:table_leg id="bl" x="${lx0}" y="${ly1}"/>
+  <xacro:table_leg id="br" x="${lx1}" y="${ly1}"/>
+
+  <xacro:cell_box name="table_shelf" sx="${lx1-lx0}" sy="${ly1-ly0}" sz="0.018"
+      x="${(lx0+lx1)/2}" y="${(ly0+ly1)/2}" z="${-H + tbl['shelf_height']}" rgba="0.90 0.91 0.92 1"/>
+
+  <!-- ================= 컨베이어 =================
+       유효 800 x 폭 150. 벨트 상면이 상판 위 180. 기어박스 200 각은 상판 바깥. -->
+  <xacro:property name="belt"  value="${conv['belt']}"/>
+  <xacro:property name="bl_"   value="${belt['x_end'] - belt['x_start']}"/>
+  <xacro:property name="bw"    value="${belt['width']}"/>
+  <xacro:property name="bz"    value="${belt['surface_z']}"/>
+  <xacro:property name="bt"    value="${belt['thickness']}"/>
+  <xacro:property name="rail"  value="${conv['side_rail']}"/>
+
+  <xacro:cell_box name="conveyor_belt" sx="${bl_}" sy="${bw}" sz="${bt}"
+      x="${(belt['x_start']+belt['x_end'])/2}" y="${belt['center_y']}" z="${bz - bt/2}"
+      rgba="0.18 0.20 0.22 1"/>
+
+  <!-- 가이드 레일. 박스가 벨트 위에서 좌우로 빠지지 않게 잡아 준다. -->
+  <xacro:cell_box name="conveyor_rail_near" sx="${bl_}" sy="${rail['thickness']}" sz="${rail['height']}"
+      x="${(belt['x_start']+belt['x_end'])/2}" y="${belt['center_y'] - bw/2 + rail['thickness']/2}"
+      z="${bz + rail['height']/2}" rgba="0.72 0.74 0.76 1"/>
+  <xacro:cell_box name="conveyor_rail_far" sx="${bl_}" sy="${rail['thickness']}" sz="${rail['height']}"
+      x="${(belt['x_start']+belt['x_end'])/2}" y="${belt['center_y'] + bw/2 - rail['thickness']/2}"
+      z="${bz + rail['height']/2}" rgba="0.72 0.74 0.76 1"/>
+
+  <!-- 벨트를 받치는 다리 두 개 -->
+  <xacro:cell_box name="conveyor_stand_in" sx="0.040" sy="${bw}" sz="${bz - bt}"
+      x="${belt['x_start'] + 0.060}" y="${belt['center_y']}" z="${(bz - bt)/2}" rgba="0.45 0.47 0.50 1"/>
+  <xacro:cell_box name="conveyor_stand_out" sx="0.040" sy="${bw}" sz="${bz - bt}"
+      x="${belt['x_end'] - 0.060}" y="${belt['center_y']}" z="${(bz - bt)/2}" rgba="0.45 0.47 0.50 1"/>
+
+  <xacro:property name="gb" value="${conv['gearbox']['size']}"/>
+  <xacro:cell_box name="conveyor_gearbox" sx="${gb}" sy="${gb}" sz="${gb}"
+      x="${conv['gearbox']['x_max'] - gb/2}" y="${belt['center_y']}" z="${bz - gb/2}"
+      rgba="0.30 0.32 0.35 1"/>
+
+  <!-- 정지 센서. 박스 중심이 stop_sensor_x에 오면 벨트가 선다.
+       실물은 광전 센서다. 여기서는 표시만 두고 판정은 conveyor_driver가 한다. -->
+  <xacro:cell_box name="conveyor_stop_sensor" sx="0.020" sy="0.020" sz="0.040"
+      x="${conv['stop_sensor_x']}" y="${belt['center_y'] - bw/2 - 0.015}" z="${bz + 0.020}"
+      rgba="0.85 0.20 0.20 1" collide="false"/>
+
+  <!-- ================= 팔레트 두 장 ================= -->
+  <xacro:macro name="pallet_unit" params="id cx cy">
+    <xacro:cell_box name="pallet_${id}" sx="${pal['size']}" sy="${pal['size']}" sz="${pal['thickness']}"
+        x="${cx}" y="${cy}" z="${pal['thickness']/2}" rgba="0.76 0.62 0.42 1"/>
+    <!-- 색칠 구역 200 각. 표시일 뿐이라 충돌은 뺀다. -->
+    <xacro:cell_box name="pallet_${id}_zone" sx="${pal['paint_zone']}" sy="${pal['paint_zone']}" sz="0.001"
+        x="${cx}" y="${cy}" z="${pal['thickness'] + 0.0005}" rgba="0.30 0.65 0.45 0.55" collide="false"/>
+  </xacro:macro>
+  <xacro:pallet_unit id="1" cx="${pal['units'][0]['center'][0]}" cy="${pal['units'][0]['center'][1]}"/>
+  <xacro:pallet_unit id="2" cx="${pal['units'][1]['center'][0]}" cy="${pal['units'][1]['center'][1]}"/>
+
+  <!-- ================= 예외 통 =================
+       판독에 세 번 실패한 박스가 여기로 간다. 통이 차면 사람이 비운다. -->
+  <xacro:property name="bx" value="${bin_['size'][0]}"/>
+  <xacro:property name="by" value="${bin_['size'][1]}"/>
+  <xacro:property name="bh" value="${bin_['height']}"/>
+  <xacro:property name="bwall" value="${bin_['wall']}"/>
+  <xacro:property name="bcx" value="${bin_['center'][0]}"/>
+  <xacro:property name="bcy" value="${bin_['center'][1]}"/>
+  <xacro:cell_box name="exception_bin_floor" sx="${bx}" sy="${by}" sz="${bwall}"
+      x="${bcx}" y="${bcy}" z="${bwall/2}" rgba="0.85 0.35 0.35 1"/>
+  <xacro:cell_box name="exception_bin_w_xmin" sx="${bwall}" sy="${by}" sz="${bh}"
+      x="${bcx - bx/2 + bwall/2}" y="${bcy}" z="${bh/2}" rgba="0.85 0.35 0.35 0.75"/>
+  <xacro:cell_box name="exception_bin_w_xmax" sx="${bwall}" sy="${by}" sz="${bh}"
+      x="${bcx + bx/2 - bwall/2}" y="${bcy}" z="${bh/2}" rgba="0.85 0.35 0.35 0.75"/>
+  <xacro:cell_box name="exception_bin_w_ymin" sx="${bx}" sy="${bwall}" sz="${bh}"
+      x="${bcx}" y="${bcy - by/2 + bwall/2}" z="${bh/2}" rgba="0.85 0.35 0.35 0.75"/>
+  <xacro:cell_box name="exception_bin_w_ymax" sx="${bx}" sy="${bwall}" sz="${bh}"
+      x="${bcx}" y="${bcy + by/2 - bwall/2}" z="${bh/2}" rgba="0.85 0.35 0.35 0.75"/>
+
+  <!-- ================= 카메라 갠트리 =================
+       기둥 두 개가 로봇 도달 고리(외경 884) 안에 있다. Planning Scene 등록이
+       선택이 아니라 필수인 이유다. tools/verify_layout.py가 매번 확인한다. -->
+  <xacro:property name="gs" value="${gan['section']}"/>
+  <xacro:property name="gan_rgba" value="0.42 0.44 0.48 1"/>
+
+  <xacro:macro name="gantry_post" params="id x y">
+    <xacro:cell_box name="gantry_post_${id}" sx="${gs}" sy="${gs}" sz="${gan['post_height']}"
+        x="${x}" y="${y}" z="${gan['post_height']/2}" rgba="${gan_rgba}"/>
+  </xacro:macro>
+  <xacro:gantry_post id="1" x="${gan['posts'][0]['xy'][0]}" y="${gan['posts'][0]['xy'][1]}"/>
+  <xacro:gantry_post id="2" x="${gan['posts'][1]['xy'][0]}" y="${gan['posts'][1]['xy'][1]}"/>
+
+  <xacro:property name="cb" value="${gan['cross_beam']}"/>
+  <xacro:cell_box name="gantry_cross_beam" sx="${gs}" sy="${cb['y_max']-cb['y_min']+gs}" sz="${gs}"
+      x="${cb['x']}" y="${(cb['y_min']+cb['y_max'])/2}" z="${cb['z']}" rgba="${gan_rgba}"/>
+
+  <xacro:property name="ac" value="${gan['arm_conveyor']}"/>
+  <xacro:cell_box name="gantry_arm_conveyor" sx="${ac['x_max']-ac['x_min']}" sy="${gs}" sz="${gs}"
+      x="${(ac['x_min']+ac['x_max'])/2}" y="${ac['y']}" z="${ac['z']}" rgba="${gan_rgba}"/>
+
+  <xacro:property name="ap" value="${gan['arm_pallet']}"/>
+  <xacro:cell_box name="gantry_arm_pallet" sx="${ap['x_max']-ap['x_min']}" sy="${gs}" sz="${gs}"
+      x="${(ap['x_min']+ap['x_max'])/2}" y="${ap['y']}" z="${ap['z']}" rgba="${gan_rgba}"/>
+
+  <!-- ================= 조명 =================
+       판독 구간 좌우 저각 바 2개. C1은 x 방향으로 기울어 있으므로 바는 y 양쪽에
+       둔다. C1과 같은 방향에서 비추면 정반사가 렌즈로 되돌아온다(기획서 5.4).
+       빛 자체는 월드 SDF가 만들고 여기서는 형상만 둔다. -->
+  <xacro:property name="lit" value="${cell['lighting']}"/>
+  <xacro:macro name="light_bar" params="id y">
+    <xacro:cell_box name="light_bar_${id}" sx="${lit['length']}" sy="0.025" sz="0.030"
+        x="${lit['center_x']}" y="${y}" z="${lit['z']}" rgba="0.95 0.95 0.90 1" collide="false"/>
+    <xacro:cell_box name="light_post_${id}_a" sx="0.020" sy="0.020" sz="${lit['z'] - bz}"
+        x="${lit['post_x'][0]}" y="${y}" z="${(lit['z'] + bz)/2}" rgba="0.50 0.52 0.55 1"/>
+    <xacro:cell_box name="light_post_${id}_b" sx="0.020" sy="0.020" sz="${lit['z'] - bz}"
+        x="${lit['post_x'][1]}" y="${y}" z="${(lit['z'] + bz)/2}" rgba="0.50 0.52 0.55 1"/>
+  </xacro:macro>
+  <xacro:light_bar id="near" y="${lit['y_near']}"/>
+  <xacro:light_bar id="far"  y="${lit['y_far']}"/>
+
+  <!-- ================= 갠트리 카메라 3대 ================= -->
+  <xacro:property name="cams" value="${cell['cameras']}"/>
+
+  <xacro:macro name="gantry_camera" params="key">
+    <xacro:property name="c" value="${cams[key]}"/>
+    <!-- 카메라를 매다는 브래킷. 종류는 cell.yaml이 정한다. -->
+    <xacro:if value="${c['bracket']['kind'] == 'drop'}">
+      <xacro:cell_box name="${key}_bracket" sx="${gan['drop']['section']}" sy="${gan['drop']['section']}"
+          sz="${c['bracket']['from_z'] - c['xyz'][2]}"
+          x="${c['xyz'][0]}" y="${c['xyz'][1]}" z="${(c['bracket']['from_z'] + c['xyz'][2])/2}"
+          rgba="0.50 0.52 0.55 1"/>
+    </xacro:if>
+    <xacro:realsense name="${key}" model="${c['model']}" parent="cell_base"
+                     stream="${c['stream'] if 'stream' in c else None}">
+      <origin xyz="${c['xyz'][0]} ${c['xyz'][1]} ${c['xyz'][2]}"
+              rpy="${c['rpy'][0]} ${c['rpy'][1]} ${c['rpy'][2]}"/>
+    </xacro:realsense>
+  </xacro:macro>
+
+  <xacro:gantry_camera key="c1_conveyor"/>
+  <xacro:gantry_camera key="c2_pallet"/>
+  <xacro:gantry_camera key="c3_scene"/>
+
+  <!-- Gazebo : 셀 전체가 static이다. 물리에서 빠지고 바닥에 박혀 있다. -->
+  <gazebo>
+    <static>true</static>
+  </gazebo>
+
+  <!-- 벨트 표면 마찰. 박스가 미끄러지지 않고 실려 가야 한다. -->
+  <gazebo reference="conveyor_belt">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+    <material>
+      <ambient>0.18 0.20 0.22 1</ambient>
+      <diffuse>0.18 0.20 0.22 1</diffuse>
+    </material>
+  </gazebo>
+
+</robot>

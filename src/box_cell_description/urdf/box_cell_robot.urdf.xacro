@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<!--
+  로봇 쪽 robot_description. FR5 + ES45 석션 + 손목 D405.
+
+  하드웨어 계층은 인자 하나로 갈아 끼운다(기획서 5.1 "실물 전환 : 하드웨어
+  플러그인만 교체").
+    hardware:=gazebo   gz_ros2_control. Gazebo Harmonic 안에서 돈다.
+    hardware:=mock     mock_components/GenericSystem. 실물도 Gazebo도 없이
+                       MoveIt2까지 전부 구동한다. 기획서 R2의 그 모드다.
+    hardware:=real     FAIRINO 드라이버. 컨트롤러 IP만 맞추면 된다.
+
+  로봇 베이스는 상판 좌표 (405, 311)의 상면에 앉는다. 기획서의 도달 거리
+  414 / 554 / 603 / 369가 전부 이 평면에서 잰 값이다.
+-->
+<robot name="box_cell_robot" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="cell_yaml"     default="$(find box_cell_description)/config/cell.yaml"/>
+  <xacro:arg name="hardware"      default="gazebo"/>
+  <xacro:arg name="robot_ip"      default="192.168.58.2"/>
+  <xacro:arg name="controllers_yaml"
+             default="$(find box_cell_bringup)/config/ros2_controllers.yaml"/>
+
+  <xacro:property name="cell" value="${xacro.load_yaml('$(arg cell_yaml)')}"/>
+  <xacro:property name="hw"   value="$(arg hardware)"/>
+
+  <xacro:include filename="$(find box_cell_description)/urdf/fr5_macro.xacro"/>
+  <xacro:include filename="$(find box_cell_description)/urdf/es45_macro.xacro"/>
+  <xacro:include filename="$(find box_cell_description)/urdf/realsense_macro.xacro"/>
+
+  <xacro:property name="rb"  value="${cell['robot']}"/>
+  <xacro:property name="H"   value="${cell['frame']['table_top_height']}"/>
+  <xacro:property name="tun" value="${cell['tuning']}"/>
+
+  <link name="world"/>
+
+  <xacro:fr5 parent="world">
+    <origin xyz="${rb['base_center'][0]} ${rb['base_center'][1]} ${H}"
+            rpy="0 0 ${rb['mount_yaw']}"/>
+  </xacro:fr5>
+
+  <xacro:es45 parent="wrist3_link" flange="${cell['tool']['flange_offset']}"/>
+
+  <!-- C4 손목 카메라. 좌표는 wrist3_link 기준이다. -->
+  <xacro:property name="c4" value="${cell['cameras']['c4_wrist']}"/>
+  <xacro:realsense name="c4_wrist" model="${c4['model']}" parent="wrist3_link"
+                   simulate="${'true' if hw == 'gazebo' else 'false'}"
+                   stream="${c4['stream'] if 'stream' in c4 else None}">
+    <origin xyz="${c4['xyz'][0]} ${c4['xyz'][1]} ${c4['xyz'][2]}"
+            rpy="${c4['rpy'][0]} ${c4['rpy'][1]} ${c4['rpy'][2]}"/>
+  </xacro:realsense>
+
+  <!-- ===================== ros2_control ===================== -->
+  <ros2_control name="FR5System" type="system">
+    <hardware>
+      <xacro:if value="${hw == 'gazebo'}">
+        <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+      </xacro:if>
+      <xacro:if value="${hw == 'mock'}">
+        <plugin>mock_components/GenericSystem</plugin>
+        <!-- 명령을 그대로 상태로 되돌린다. 궤적은 제대로 계산되고 실행만 흉내다. -->
+        <param name="mock_sensor_commands">false</param>
+        <param name="state_following_offset">0.0</param>
+      </xacro:if>
+      <xacro:if value="${hw == 'real'}">
+        <plugin>fairino_hardware/FairinoHardwareInterface</plugin>
+        <param name="robot_ip">$(arg robot_ip)</param>
+      </xacro:if>
+    </hardware>
+
+    <xacro:macro name="fr5_joint_if" params="name home">
+      <joint name="${name}">
+        <command_interface name="position"/>
+        <state_interface name="position">
+          <param name="initial_value">${home}</param>
+        </state_interface>
+        <state_interface name="velocity"/>
+        <state_interface name="effort"/>
+      </joint>
+    </xacro:macro>
+
+    <xacro:fr5_joint_if name="j1" home="${tun['home_joints'][0]}"/>
+    <xacro:fr5_joint_if name="j2" home="${tun['home_joints'][1]}"/>
+    <xacro:fr5_joint_if name="j3" home="${tun['home_joints'][2]}"/>
+    <xacro:fr5_joint_if name="j4" home="${tun['home_joints'][3]}"/>
+    <xacro:fr5_joint_if name="j5" home="${tun['home_joints'][4]}"/>
+    <xacro:fr5_joint_if name="j6" home="${tun['home_joints'][5]}"/>
+  </ros2_control>
+
+  <xacro:if value="${hw == 'gazebo'}">
+    <gazebo>
+      <plugin filename="gz_ros2_control-system"
+              name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+        <parameters>$(arg controllers_yaml)</parameters>
+        <ros>
+          <namespace>/</namespace>
+        </ros>
+      </plugin>
+    </gazebo>
+
+    <!-- ===================== 석션 =====================
+         ES45에는 센서가 없다. 밸브를 열면 닿아 있던 것이 붙고 닫으면 떨어진다.
+         Gazebo에서는 DetachableJoint가 그 역할을 한다. 박스마다 하나씩 둔다.
+
+         gz-sim 8의 DetachableJoint는 attach 요청이 오기 전에는 조인트를
+         만들지 않는다. 그래서 기동 직후에는 전부 떨어진 상태다.
+         suppress_child_warning은 박스가 아직 스폰되기 전이어도 조용히
+         기다리게 한다.
+
+         gripper_driver가 어느 박스를 붙일지 고르고 해당 토픽으로 쏜다.
+         실물에서 이 노드는 같은 서비스(/gripper/vacuum)를 그대로 유지한 채
+         디지털 출력만 대신 때린다. -->
+    <xacro:macro name="suction_target" params="idx">
+      <gazebo>
+        <plugin filename="gz-sim-detachable-joint-system"
+                name="gz::sim::systems::DetachableJoint">
+          <parent_link>es45_cup</parent_link>
+          <child_model>box_${idx}</child_model>
+          <child_link>box_link</child_link>
+          <attach_topic>/suction/box_${idx}/attach</attach_topic>
+          <detach_topic>/suction/box_${idx}/detach</detach_topic>
+          <output_topic>/suction/box_${idx}/state</output_topic>
+          <suppress_child_warning>true</suppress_child_warning>
+        </plugin>
+      </gazebo>
+    </xacro:macro>
+
+    <xacro:property name="n_boxes" value="${cell['box']['count']}"/>
+    <xacro:macro name="suction_targets" params="i">
+      <xacro:if value="${i &lt;= n_boxes}">
+        <xacro:suction_target idx="${i}"/>
+        <xacro:suction_targets i="${i+1}"/>
+      </xacro:if>
+    </xacro:macro>
+    <xacro:suction_targets i="1"/>
+
+    <!-- 컵 표면 마찰. 붙은 박스가 조인트로 잡히기 전 한 프레임 미끄러지는 것을 줄인다. -->
+    <gazebo reference="es45_cup">
+      <mu1>1.2</mu1>
+      <mu2>1.2</mu2>
+    </gazebo>
+  </xacro:if>
+
+</robot>

@@ -1,0 +1,12 @@
+# MES 품목 조회. 라벨 판독 직후 부른다(기획서 한 사이클 5단계).
+#
+# 조회에 실패해도 사이클은 멈추지 않는다. 품목 이름은 화면과 기록용이고,
+# 적재 자체는 라벨 코드만 있으면 된다. MES가 죽었다고 로봇이 서면
+# 무인 연속 운전이라는 전제가 무너진다.
+string code
+---
+bool    found
+string  name
+string  category
+string  note
+bool    from_cache      # 서버가 아니라 엣지 버퍼에서 답했는가

@@ -1,0 +1,97 @@
+# =============================================================================
+# Intel RealSense 제원. 데이터시트 공칭값.
+#
+# 이 파일 하나를 URDF(xacro)와 검증 스크립트가 함께 읽는다.
+# 셀에 실제로 붙는 기종은 cell.yaml의 cameras: 블록이 정한다.
+#
+# 주의 : 카메라 안쪽 오프셋(이미저 사이 15 mm 같은 값)은 데이터시트 근사다.
+# 데모에서 정확도를 좌우하는 것은 카메라와 셀 사이의 외부 파라미터이고,
+# 그것은 하드웨어 도착 후 핸드아이 캘리브레이션(기획서 E3)으로 다시 잡는다.
+# =============================================================================
+
+d435f:
+  # D435의 IR 통과 필터 판. 광학 제원은 D435와 같다.
+  full_name: "Intel RealSense D435f"
+  body: [0.025, 0.090, 0.025]     # x 깊이, y 폭, z 높이 (m)
+  mass: 0.072
+  color:
+    width: 1920
+    height: 1080
+    hfov_deg: 69.0
+    vfov_deg: 42.0
+    rate: 30
+    offset_y: 0.015               # 깊이 좌측 이미저 기준 컬러 이미저 위치
+    noise_stddev: 0.007
+  depth:
+    width: 848
+    height: 480
+    hfov_deg: 87.0
+    vfov_deg: 58.0
+    rate: 30
+    range: [0.30, 3.00]
+    baseline: 0.050
+    noise_stddev: 0.003           # 1 m에서 약 3 mm
+  points: true
+
+d455:
+  full_name: "Intel RealSense D455"
+  body: [0.026, 0.124, 0.029]
+  mass: 0.104
+  color:
+    width: 1280
+    height: 800
+    hfov_deg: 90.0
+    vfov_deg: 65.0
+    rate: 30
+    offset_y: 0.015
+    noise_stddev: 0.007
+  depth:
+    width: 848
+    height: 480
+    hfov_deg: 87.0
+    vfov_deg: 58.0
+    rate: 30
+    range: [0.60, 6.00]
+    baseline: 0.095
+    noise_stddev: 0.004
+  points: true
+
+d405:
+  # 스테레오 모듈 하나가 컬러와 깊이를 함께 낸다. IMU 없음. 근접 전용.
+  full_name: "Intel RealSense D405"
+  body: [0.023, 0.042, 0.042]
+  mass: 0.045
+  color:
+    width: 1280
+    height: 720
+    hfov_deg: 87.0
+    vfov_deg: 58.0
+    rate: 30
+    offset_y: 0.0                 # 같은 모듈이라 오프셋이 없다
+    noise_stddev: 0.005
+  depth:
+    width: 1280
+    height: 720
+    hfov_deg: 87.0
+    vfov_deg: 58.0
+    rate: 30
+    range: [0.07, 0.50]
+    baseline: 0.018
+    noise_stddev: 0.0008          # 0.2 m에서 약 0.8 mm
+  points: true
+
+generic_rgb:
+  # C3 측면/씬용 자리. 기종이 확정되면 cell.yaml의 model만 바꾼다.
+  full_name: "미정 (관람/기록용 RGB)"
+  body: [0.025, 0.070, 0.025]
+  mass: 0.060
+  color:
+    width: 1280
+    height: 720
+    hfov_deg: 69.0
+    vfov_deg: 42.0
+    rate: 15
+    offset_y: 0.0
+    noise_stddev: 0.007
+  depth: null
+  points: false

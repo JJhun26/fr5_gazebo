@@ -1,0 +1,12 @@
+# MoveIt이 궤적을 넘길 컨트롤러. ros2_control의 것과 이름이 같아야 한다.
+moveit_simple_controller_manager:
+  controller_names:
+    - joint_trajectory_controller
+
+  joint_trajectory_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [j1, j2, j3, j4, j5, j6]
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager

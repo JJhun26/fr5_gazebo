@@ -1,0 +1,25 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>box_cell_conveyor</name>
+  <version>0.1.0</version>
+  <description>conveyor_driver. 벨트 구동, 정지 센서 판정</description>
+  <maintainer email="vlassom0@gmail.com">jr</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>box_cell_common</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>box_cell_msgs</depend>
+
+  <depend>ros_gz_interfaces</depend>
+  <depend>geometry_msgs</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

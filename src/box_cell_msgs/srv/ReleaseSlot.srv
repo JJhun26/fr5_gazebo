@@ -1,0 +1,8 @@
+# 반출(디팔레타이징) 처리. 기록의 역순으로 한 자리를 비운다.
+uint8 pallet_id
+int16 index                         # -1이면 가장 나중에 쌓은 것을 고른다
+---
+bool                success
+geometry_msgs/Pose   pick_pose      # 꺼낼 자리. world 기준.
+uint8                index
+string               code

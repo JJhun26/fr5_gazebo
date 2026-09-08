@@ -1,0 +1,48 @@
+# OMPL 파이프라인 설정.
+#
+# 이 파일을 두면 MoveItConfigsBuilder가 기본 ompl 설정을 쓰지 않고 이것만
+# 읽는다. 그래서 플러그인과 어댑터 선언까지 여기 있어야 한다. 빠뜨리면
+# move_group이 기동 도중 예외로 죽는다 :
+#   "Planning plugin name is empty or not defined in namespace 'ompl'"
+#
+# 굳이 파일을 두는 이유는 두 가지다. 하나는 group 'fr5_arm'의 플래너 설정이
+# 없다는 경고를 없애는 것이고("Cannot find planning configuration for group
+# 'fr5_arm'"), 다른 하나는 어떤 설정으로 궤적이 나왔는지 확인할 곳을 만드는
+# 것이다. 데모 전날 궤적이 달라졌을 때 볼 데가 있어야 한다.
+#
+# OMPL이 나서는 것은 Pilz가 충돌로 실패했을 때뿐이다(기획서 5.1).
+# 그때는 이미 예외 상황이므로 빨리 답을 내는 RRTConnect를 기본으로 둔다.
+
+planning_plugins:
+  - ompl_interface/OMPLPlanner
+
+request_adapters:
+  - default_planning_request_adapters/ResolveConstraintFrames
+  - default_planning_request_adapters/ValidateWorkspaceBounds
+  - default_planning_request_adapters/CheckStartStateBounds
+  - default_planning_request_adapters/CheckStartStateCollision
+
+response_adapters:
+  - default_planning_response_adapters/AddTimeOptimalParameterization
+  # 계획된 경로를 마지막에 한 번 더 충돌 검사한다. Pilz가 낸 궤적이
+  # 여기서 걸리는 일이 있는데, 그건 어댑터가 제 일을 한 것이다.
+  - default_planning_response_adapters/ValidateSolution
+  - default_planning_response_adapters/DisplayMotionPath
+
+planner_configs:
+  RRTConnectkConfigDefault:
+    type: geometric::RRTConnect
+    range: 0.0                 # 0이면 OMPL이 상태공간 크기에서 정한다
+  RRTstarkConfigDefault:
+    type: geometric::RRTstar
+    range: 0.0
+    goal_bias: 0.05
+    delay_collision_checking: 1
+
+fr5_arm:
+  default_planner_config: RRTConnectkConfigDefault
+  planner_configs:
+    - RRTConnectkConfigDefault
+    - RRTstarkConfigDefault
+  projection_evaluator: joints(j1,j2)
+  longest_valid_segment_fraction: 0.005

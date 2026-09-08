@@ -1,0 +1,29 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>box_cell_sim</name>
+  <version>0.1.0</version>
+  <description>Gazebo Harmonic 월드, 스폰, ros_gz 브리지</description>
+  <maintainer email="vlassom0@gmail.com">jr</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>box_cell_common</depend>
+  <depend>ros_gz_sim</depend>
+  <depend>ros_gz_bridge</depend>
+  <depend>ros_gz_image</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>box_cell_description</depend>
+  <depend>box_cell_msgs</depend>
+
+  <depend>tf2_msgs</depend>
+  <depend>box_cell_mes</depend>
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

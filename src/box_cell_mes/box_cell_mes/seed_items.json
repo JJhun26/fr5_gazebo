@@ -1,0 +1,58 @@
+[
+  {
+    "code": "AXO-0001",
+    "name": "무선 이어폰",
+    "category": "전자",
+    "note": "소형 · 파손 주의",
+    "box": "box_1"
+  },
+  {
+    "code": "AXO-0002",
+    "name": "보조 배터리",
+    "category": "전자",
+    "note": "리튬 · 항공 제한",
+    "box": "box_2"
+  },
+  {
+    "code": "AXO-0003",
+    "name": "USB 허브",
+    "category": "전자",
+    "note": "",
+    "box": "box_3"
+  },
+  {
+    "code": "AXO-0004",
+    "name": "커피 원두 1kg",
+    "category": "식품",
+    "note": "직사광선 피할 것",
+    "box": "box_4"
+  },
+  {
+    "code": "AXO-0005",
+    "name": "머그컵 2입",
+    "category": "생활",
+    "note": "파손 주의",
+    "box": "box_5"
+  },
+  {
+    "code": "AXO-0006",
+    "name": "면 티셔츠 L",
+    "category": "의류",
+    "note": "",
+    "box": "box_6"
+  },
+  {
+    "code": "AXO-0007",
+    "name": "노트 5권",
+    "category": "문구",
+    "note": "",
+    "box": "box_7"
+  },
+  {
+    "code": "AXO-0008",
+    "name": "공구 세트",
+    "category": "공구",
+    "note": "중량 주의",
+    "box": "box_8"
+  }
+]

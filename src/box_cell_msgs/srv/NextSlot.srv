@@ -1,0 +1,8 @@
+# 다음 적재 자리를 묻는다. 기획서 5.7의 정의 그대로다.
+# pallet_manager가 적재 기록을 갖고 답한다.
+uint8 pallet_id
+---
+bool                success
+geometry_msgs/Pose  place_pose      # TCP가 가야 할 자리. world 기준.
+uint8               layer
+uint8               index

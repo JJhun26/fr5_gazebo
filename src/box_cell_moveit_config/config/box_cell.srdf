@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  FR5 + ES45 석션의 시맨틱 정의.
+
+  링크 이름과 충돌 해제 쌍은 FAIRINO 공식 fairino5_v6_moveit2_config의 SRDF에서
+  가져왔다. 거기에 석션 툴과 손목 카메라를 더했다.
+
+  tip_link을 wrist3_link이 아니라 tcp_link으로 잡는 것이 요점이다. 계획 목표가
+  전부 '박스 상면을 잡는 컵 접촉면'의 자세이기 때문이다. 플랜지 기준으로
+  잡으면 목표마다 220.5 mm를 손으로 빼야 하고, 그 계산은 언젠가 틀린다.
+-->
+<robot name="box_cell">
+
+  <group name="fr5_arm">
+    <joint name="j1"/>
+    <joint name="j2"/>
+    <joint name="j3"/>
+    <joint name="j4"/>
+    <joint name="j5"/>
+    <joint name="j6"/>
+    <chain base_link="base_link" tip_link="tcp_link"/>
+  </group>
+
+  <!-- 대기 자세. cell.yaml의 tuning.home_joints와 같은 값이어야 한다. -->
+  <group_state name="home" group="fr5_arm">
+    <joint name="j1" value="0.0"/>
+    <joint name="j2" value="-1.5708"/>
+    <joint name="j3" value="1.5708"/>
+    <joint name="j4" value="-1.5708"/>
+    <joint name="j5" value="-1.5708"/>
+    <joint name="j6" value="0.0"/>
+  </group_state>
+
+  <!-- 상판을 향해 접은 자세. 전원 투입 직후와 유지보수용. -->
+  <group_state name="folded" group="fr5_arm">
+    <joint name="j1" value="0.0"/>
+    <joint name="j2" value="-2.6180"/>
+    <joint name="j3" value="2.6180"/>
+    <joint name="j4" value="-1.5708"/>
+    <joint name="j5" value="-1.5708"/>
+    <joint name="j6" value="0.0"/>
+  </group_state>
+
+  <!-- 로봇은 상판에 볼트로 고정되어 있다. -->
+  <virtual_joint name="fixed_base" type="fixed" parent_frame="world" child_link="base_link"/>
+
+  <!-- FR5 자체 (공식 SRDF와 동일) -->
+  <disable_collisions link1="base_link" link2="shoulder_link" reason="Adjacent"/>
+  <disable_collisions link1="base_link" link2="upperarm_link" reason="Never"/>
+  <disable_collisions link1="forearm_link" link2="shoulder_link" reason="Never"/>
+  <disable_collisions link1="forearm_link" link2="upperarm_link" reason="Adjacent"/>
+  <disable_collisions link1="forearm_link" link2="wrist1_link" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_link" link2="upperarm_link" reason="Adjacent"/>
+  <disable_collisions link1="shoulder_link" link2="wrist1_link" reason="Never"/>
+  <disable_collisions link1="upperarm_link" link2="wrist1_link" reason="Never"/>
+  <disable_collisions link1="wrist1_link" link2="wrist2_link" reason="Adjacent"/>
+  <disable_collisions link1="wrist1_link" link2="wrist3_link" reason="Never"/>
+  <disable_collisions link1="wrist2_link" link2="wrist3_link" reason="Adjacent"/>
+
+  <!-- ES45 석션 툴 -->
+  <disable_collisions link1="wrist3_link" link2="es45_adapter" reason="Adjacent"/>
+  <disable_collisions link1="wrist2_link" link2="es45_adapter" reason="Never"/>
+  <disable_collisions link1="wrist1_link" link2="es45_adapter" reason="Never"/>
+  <disable_collisions link1="es45_adapter" link2="es45_body" reason="Adjacent"/>
+  <disable_collisions link1="es45_body" link2="es45_cup" reason="Adjacent"/>
+  <disable_collisions link1="es45_adapter" link2="es45_cup" reason="Never"/>
+  <disable_collisions link1="wrist3_link" link2="es45_body" reason="Never"/>
+  <disable_collisions link1="wrist3_link" link2="es45_cup" reason="Never"/>
+
+  <!-- C4 손목 카메라. 그리퍼 몸통 옆에 붙어 있어 항상 닿는다. -->
+  <disable_collisions link1="c4_wrist_link" link2="wrist3_link" reason="Adjacent"/>
+  <disable_collisions link1="c4_wrist_link" link2="wrist2_link" reason="Never"/>
+  <disable_collisions link1="c4_wrist_link" link2="wrist1_link" reason="Never"/>
+  <disable_collisions link1="c4_wrist_link" link2="es45_adapter" reason="Never"/>
+  <disable_collisions link1="c4_wrist_link" link2="es45_body" reason="Never"/>
+  <disable_collisions link1="c4_wrist_link" link2="es45_cup" reason="Never"/>
+
+</robot>

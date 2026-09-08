@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>물류 로봇 데모 · MES</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --ink: #16202a; --muted: #5b6b7a;
+    --line: #e2e6ea; --accent: #0f6fbf; --good: #1a8f5a; --bad: #c0392b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#12171c; --card:#1a2027; --ink:#e6ebf0; --muted:#93a2b1;
+            --line:#2a333c; --accent:#4aa3e8; --good:#37c07f; --bad:#e8705f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:14px/1.55 -apple-system, "Noto Sans KR", system-ui, sans-serif; }
+  header { padding:20px 24px 12px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:20px; letter-spacing:-.01em; }
+  .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+  main { padding:20px 24px 48px; max-width:1100px; }
+  .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .v { font-size:26px; font-weight:650; margin-top:4px; font-variant-numeric:tabular-nums; }
+  h2 { font-size:15px; margin:28px 0 10px; }
+  table { width:100%; border-collapse:collapse; background:var(--card);
+          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line); font-size:13px; }
+  th { background:color-mix(in srgb, var(--card) 88%, var(--ink)); font-weight:600;
+       color:var(--muted); font-size:12px; }
+  tr:last-child td { border-bottom:0; }
+  td.num { font-variant-numeric:tabular-nums; }
+  .tag { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px;
+         font-weight:600; border:1px solid var(--line); }
+  .PLACE  { color:var(--good); border-color:var(--good); }
+  .READ   { color:var(--accent); border-color:var(--accent); }
+  .DEPAL  { color:var(--muted); }
+  .EXCEPTION { color:var(--bad); border-color:var(--bad); }
+  .SWAP   { color:var(--muted); }
+  .wrap { overflow-x:auto; }
+  footer { color:var(--muted); font-size:12px; margin-top:24px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>물류 로봇 데모 · MES</h1>
+  <div class="sub">셀 <b>cell-01</b> · FR5 · 2초마다 갱신</div>
+</header>
+<main>
+  <div class="row" id="stats"></div>
+  <h2>처리 이력</h2>
+  <div class="wrap"><table>
+    <thead><tr><th>시각</th><th>종류</th><th>코드</th><th>팔레트</th><th>층</th><th>자리</th><th>사진</th></tr></thead>
+    <tbody id="events"></tbody>
+  </table></div>
+  <footer>기획서 5.5의 events 테이블을 그대로 보여 준다. event_id가 멱등키라
+  통신이 끊겼다 재전송된 건도 한 번만 남는다.</footer>
+</main>
+<script>
+const fmt = (t) => new Date(t * 1000).toLocaleTimeString('ko-KR', {hour12:false});
+const cell = (k, v) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+
+async function tick() {
+  try {
+    const [s, e] = await Promise.all([
+      fetch('/stats').then(r => r.json()),
+      fetch('/events').then(r => r.json()),
+    ]);
+    document.getElementById('stats').innerHTML =
+      cell('적재 건수', s.placed ?? 0) +
+      cell('예외', s.exceptions ?? 0) +
+      cell('평균 사이클', (s.cycle_sec ?? 0).toFixed(1) + ' s') +
+      cell('판독률', ((s.read_rate ?? 0) * 100).toFixed(1) + ' %') +
+      cell('가동 시간', Math.round(s.elapsed_sec ?? 0) + ' s');
+
+    document.getElementById('events').innerHTML = e.map(r => `
+      <tr>
+        <td class="num">${fmt(r.ts)}</td>
+        <td><span class="tag ${r.type}">${r.type}</span></td>
+        <td>${r.code || '—'}</td>
+        <td class="num">${r.pallet ?? '—'}</td>
+        <td class="num">${r.layer ?? '—'}</td>
+        <td class="num">${r.idx ?? '—'}</td>
+        <td>${r.image_path ? r.image_path.split('/').pop() : '—'}</td>
+      </tr>`).join('');
+  } catch (err) {
+    document.getElementById('stats').innerHTML = cell('상태', '서버 응답 없음');
+  }
+}
+tick();
+setInterval(tick, 2000);
+</script>
+</body>
+</html>
