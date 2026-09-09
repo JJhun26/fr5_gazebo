@@ -16,6 +16,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PalletState.msg"
   "srv/ItemQuery.srv"
   "srv/NextSlot.srv"
+  "srv/VerifyStack.srv"
   "srv/ReleaseSlot.srv"
   "srv/Vacuum.srv"
   "srv/BeltCommand.srv"

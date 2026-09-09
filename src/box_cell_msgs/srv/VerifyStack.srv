@@ -1,0 +1,18 @@
+# 적재 결과 확인. C2(팔레트 탑뷰)가 방금 놓은 자리를 본다.
+#
+# 왜 필요한가. ES45 흡착 그리퍼는 잡았는지 되물을 수 없다(gripper_driver
+# 주석). 그래서 "동작을 끝냈다"와 "옮겼다"가 다른 이야기다. 정지 센서로
+# 헛집기는 잡을 수 있지만, 그건 "집었는가"까지다. **놓았는가**는 놓은
+# 자리를 봐야 안다. 기획서가 C2를 둔 이유다.
+#
+# 판정은 깊이로 한다. 팔레트 데크에서 박스 상면까지의 높이가 기대와 맞으면
+# 놓인 것이다. 색으로 보려면 조명과 상자 색에 휘둘리는데, 높이는 그렇지 않다.
+geometry_msgs/Pose  place_pose      # TCP가 갔던 자리 = 박스 상면 중심, world
+float64[3]          box_size        # 놓은 박스의 치수
+uint8               pallet_id
+---
+bool    ok
+float64 measured_height   # 팔레트 데크에서 잰 높이 (m)
+float64 expected_height
+float64 coverage          # 기대 발자국 중 높이가 맞는 화소 비율 0..1
+string  detail

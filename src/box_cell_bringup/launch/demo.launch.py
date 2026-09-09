@@ -111,6 +111,35 @@ def generate_launch_description() -> LaunchDescription:
                 {"camera": "c4_wrist", "image_topic": "/c4_wrist/color/image/compressed"},
             ],
         ),
+        # 적재 결과 확인. C2 팔레트 탑뷰의 깊이로 본다(기획서 D 항목).
+        # task_manager가 RECORD 직전에 부른다. 없으면 확인 없이 진행한다.
+        Node(
+            package="box_cell_perception",
+            executable="stack_check",
+            name="stack_check",
+            output="screen",
+            parameters=[sim_time, {"camera": "c2_pallet"}],
+        ),
+        # 디지털 트윈 브리지(기획서 D4). 셀 상태를 JSON 한 창구로 낸다.
+        # 파일 /tmp/box_cell/twin.json, 토픽 /twin/state, HTTP :8030/twin.
+        # 내기만 하고 받지 않는다. 죽어도 셀은 계속 돈다.
+        Node(
+            package="box_cell_logic",
+            executable="twin_bridge",
+            name="twin_bridge",
+            output="screen",
+            parameters=[sim_time, {"source": "sim"}],
+        ),
+        # Dry Run 채점기(기획서 D3). 운전을 지켜보며 처리량, 사이클 시간,
+        # 예외 사유, 적재 정확도를 모아 /tmp/box_cell/dry_run.json에 쓴다.
+        # 동작에 관여하지 않는다. 보기만 한다.
+        Node(
+            package="box_cell_logic",
+            executable="dry_run_scorer",
+            name="dry_run_scorer",
+            output="screen",
+            parameters=[sim_time],
+        ),
         Node(
             package="box_cell_perception",
             executable="pose_resolver",

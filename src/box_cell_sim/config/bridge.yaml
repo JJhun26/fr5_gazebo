@@ -46,6 +46,13 @@
   gz_type_name: "gz.msgs.CameraInfo"
   direction: GZ_TO_ROS
 
+# 깊이 카메라 내부 파라미터. stack_check가 발자국을 화면에 투영할 때 쓴다.
+- ros_topic_name: "/c2_pallet/depth/camera_info"
+  gz_topic_name: "/c2_pallet/depth/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
 - ros_topic_name: "/c3_scene/color/camera_info"
   gz_topic_name: "/c3_scene/color/camera_info"
   ros_type_name: "sensor_msgs/msg/CameraInfo"

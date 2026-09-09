@@ -36,7 +36,7 @@ import rclpy
 from box_cell_common.cell_geometry import CellGeometry
 from box_cell_msgs.action import PickPlace
 from box_cell_msgs.msg import CellState, LabelDetection, PalletState
-from box_cell_msgs.srv import BeltCommand, ItemQuery, NextSlot, ReleaseSlot
+from box_cell_msgs.srv import BeltCommand, ItemQuery, NextSlot, ReleaseSlot, VerifyStack
 from geometry_msgs.msg import Pose
 from rclpy.action import ActionClient
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -112,6 +112,10 @@ class TaskManager(Node):
         self.belt = self.create_client(BeltCommand, "/belt/command", callback_group=self.cb)
         self.next_slot = self.create_client(NextSlot, "/pallet/next_slot", callback_group=self.cb)
         self.release = self.create_client(ReleaseSlot, "/pallet/release", callback_group=self.cb)
+        # 적재 결과 확인(기획서 D). 없으면 확인 없이 진행한다.
+        self.verify = self.create_client(
+            VerifyStack, "/perception/verify_stack", callback_group=self.cb
+        )
         self.read_c1 = self.create_client(
             Trigger, "/perception/c1_conveyor/read", callback_group=self.cb
         )
@@ -671,13 +675,64 @@ class TaskManager(Node):
         self._event("DEPAL", res.code, f"p{self.source},{res.index}")
         return True
 
-    def _to_exception(self, box_name: str) -> None:
-        """판독 3회 실패. 예외 통으로 보낸다."""
-        self.exceptions += 1
-        self._set(S.EXCEPTION, f"판독 3회 실패. {box_name}를 예외 통으로.")
-        self._event("EXCEPTION", "", "판독 실패")
+    def _verify_stack(self, slot, box_size) -> bool | None:
+        """C2로 방금 놓은 자리를 본다. True 놓임 / False 없음 / None 판정 보류.
 
-        pick = down_pose(*self.cell.read_station_xy(), self.cell.read_top_z)
+        서비스가 없거나 깊이가 안 오면 None이다. 그때는 진행한다. 확인이
+        없다고 셀을 세우면, 카메라 한 대가 늦게 뜬 것만으로 데모가 멈춘다.
+        보류와 실패를 같은 것으로 취급하지 않는 것이 핵심이다.
+        """
+        if not self.verify.service_is_ready():
+            return None
+        req = VerifyStack.Request()
+        req.place_pose = slot.place_pose
+        req.box_size = [float(v) for v in box_size]
+        req.pallet_id = int(self.target)
+        res = self.verify.call(req)
+        if res is None:
+            self.get_logger().warn("적재 확인 무응답. 확인 없이 진행한다.")
+            return None
+        if res.ok:
+            self.get_logger().info(
+                f"적재 확인 : 높이 {res.measured_height*1000:.0f} mm "
+                f"(기대 {res.expected_height*1000:.0f}), 덮임 {res.coverage*100:.0f}%"
+            )
+            return True
+        if "보류" in res.detail or not res.detail:
+            self.get_logger().warn(f"적재 확인 보류 : {res.detail}")
+            return None
+        self.get_logger().error(f"적재 확인 실패 : {res.detail}")
+        return False
+
+    def _to_exception(self, box_name: str, code: str = "", reason: str = "판독 실패",
+                      box_size: list[float] | None = None) -> None:
+        """예외 통으로 보낸다.
+
+        오는 길이 세 가지다.
+          - 판독 3회 실패     : 무엇인지 모른다
+          - MES 미등록 코드   : 코드는 읽었는데 아는 물건이 아니다
+          - hazmat / oversize : 알지만 팔레트에 올리면 안 되는 물건이다
+        셋 다 사람이 따로 처리한다. 로봇은 통까지만 옮긴다.
+
+        예외 이송까지 실패하면 잼으로 본다. 같은 박스를 계속 다시 집으려
+        들면 안 된다. 판독이 안 되는 박스는 대개 제자리에 반듯이 서 있지
+        않은 박스이고(실측: 이송 중 놓친 박스가 y로 44 mm 밀린 채 가드
+        레일에 걸터앉아 있었다), 그런 박스는 흡착 조건도 못 맞춘다.
+        그대로 두면 판독 실패 -> 예외 이송 실패가 끝없이 돈다.
+
+        실물 라인의 처리도 같다. 로봇이 두 번 시도해서 못 치우면 사람을
+        부르고 라인을 세운다. 로봇이 계속 찔러 보게 두지 않는다.
+        """
+        self.exceptions += 1
+        self._set(S.EXCEPTION, f"{reason}. {box_name}를 예외 통으로.")
+        self._event("EXCEPTION", code, reason)
+
+        # 판독에 실패했으면 규격도 모른다. 그때는 기본 규격으로 가정한다.
+        # 컵이 조금 덜 내려가거나 더 내려가는데, 예외 통으로 보내는 길이라
+        # 정확할 필요가 없다. 헛집으면 아래 잼 처리가 받는다.
+        size = list(box_size) if box_size and len(box_size) == 3 else list(
+            self.cell.default_box_size)
+        pick = down_pose(*self.cell.read_station_xy(), self.cell.read_top_z_for(size[2]))
         x, y, z = self.cell.exception_drop_pose()
         # 통 위에서 놓는다. 통 안으로 내려놓을 필요는 없다.
         if not self._pick_place(pick, down_pose(x, y, z), box_name, box_size=size):

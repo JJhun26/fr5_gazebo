@@ -25,6 +25,7 @@ setup(
             "camera_node = box_cell_perception.camera_node:main",
             "label_reader = box_cell_perception.label_reader:main",
             "pose_resolver = box_cell_perception.pose_resolver:main",
+            "stack_check = box_cell_perception.stack_check:main",
         ],
     },
 )
