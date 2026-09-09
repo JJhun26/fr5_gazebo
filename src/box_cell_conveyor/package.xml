@@ -13,7 +13,6 @@
   <depend>std_srvs</depend>
   <depend>box_cell_msgs</depend>
 
-  <depend>ros_gz_interfaces</depend>
   <depend>geometry_msgs</depend>
 
   <test_depend>ament_lint_auto</test_depend>

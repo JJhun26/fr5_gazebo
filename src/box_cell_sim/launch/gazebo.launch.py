@@ -49,6 +49,7 @@ def generate_launch_description() -> LaunchDescription:
 
     robot_xacro = os.path.join(desc_share, "urdf", "box_cell_robot.urdf.xacro")
     cell_xacro = os.path.join(desc_share, "urdf", "cell_furniture.urdf.xacro")
+    conveyor_xacro = os.path.join(desc_share, "urdf", "conveyor.urdf.xacro")
     world_xacro = os.path.join(sim_share, "worlds", "box_cell.sdf.xacro")
     controllers = os.path.join(bringup_share, "config", "ros2_controllers.yaml")
 
@@ -60,6 +61,10 @@ def generate_launch_description() -> LaunchDescription:
         value_type=str,
     )
     cell_description = ParameterValue(Command(["xacro ", cell_xacro]), value_type=str)
+    # 구동 롤러는 셀과 따로 둔다. 셀은 static이라 조인트가 돌지 않는다.
+    conveyor_description = ParameterValue(
+        Command(["xacro ", conveyor_xacro]), value_type=str
+    )
 
     # 월드는 xacro라 먼저 펼쳐 둔다. gz는 xacro를 모른다.
     world_sdf = os.path.join(os.environ.get("HOME", "/tmp"), ".box_cell", "box_cell.sdf")
@@ -102,6 +107,25 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[{"robot_description": cell_description, "use_sim_time": True}],
         remappings=[("/tf", "/tf"), ("/tf_static", "/tf_static")],
+    )
+
+    rsp_conveyor = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        name="conveyor_state_publisher",
+        namespace="conveyor",
+        output="screen",
+        parameters=[{"robot_description": conveyor_description, "use_sim_time": True}],
+    )
+    spawn_conveyor = Node(
+        package="ros_gz_sim",
+        executable="create",
+        name="spawn_conveyor",
+        output="screen",
+        arguments=[
+            "-topic", "/conveyor/robot_description",
+            "-name", "conveyor", "-allow_renaming", "false",
+        ],
     )
 
     spawn_robot = Node(
@@ -194,7 +218,9 @@ def generate_launch_description() -> LaunchDescription:
             RegisterEventHandler(OnProcessExit(target_action=expand_world, on_exit=[gz])),
             rsp_robot,
             rsp_cell,
+            rsp_conveyor,
             spawn_cell,
+            spawn_conveyor,
             spawn_robot,
             # 로봇이 월드에 들어간 뒤라야 controller_manager가 열린다.
             RegisterEventHandler(OnProcessExit(target_action=spawn_robot, on_exit=[jsb])),

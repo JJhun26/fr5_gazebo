@@ -149,6 +149,11 @@ class CellGeometry:
         return float(self.data["conveyor"]["belt"]["center_y"])
 
     @property
+    def belt_friction(self) -> float:
+        """벨트 표면과 박스 사이의 마찰. 형상과 이송력 계산이 같은 값을 쓴다."""
+        return float(self.data["conveyor"]["belt"].get("friction", 0.6))
+
+    @property
     def belt_speed(self) -> float:
         return float(self.data["conveyor"]["speed"])
 
@@ -163,6 +168,7 @@ class CellGeometry:
 
     @property
     def infeed_x(self) -> float:
+        """로봇이 박스를 벨트에 되올려 놓는 자리(유효 구간 안)."""
         return float(self.data["conveyor"]["infeed_x"])
 
     def read_station_xy(self) -> tuple[float, float]:
@@ -212,26 +218,6 @@ class CellGeometry:
     @property
     def scenario_mode(self) -> str:
         return str(self.scenario.get("mode", "circulate"))
-
-    def entry_pose(self) -> tuple[float, float, float]:
-        """벨트 입구. 박스가 여기 놓이면 벨트가 정지 센서까지 실어 간다.
-
-        z는 박스 무게중심이다. 벨트 상면 위에 반 높이만큼 올라앉는다.
-        """
-        return (
-            float(self.scenario["entry_x"]),
-            self.belt_center_y,
-            self.belt_surface_z + self.box_height / 2.0,
-        )
-
-    def staging_pose(self, index: int) -> tuple[float, float, float]:
-        """대기 중인 박스 자리. 셀 밖 바닥, 컨베이어 축을 따라 상류로 늘어선다."""
-        st = self.scenario["staging"]
-        return (
-            float(st["x0"]) + index * float(st["dx"]),
-            float(st["y"]),
-            float(st["z"]),
-        )
 
     # ---------------------------------------------------------------- 카메라
     def camera(self, key: str) -> dict[str, Any]:

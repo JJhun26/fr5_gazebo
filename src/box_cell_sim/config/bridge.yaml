@@ -17,26 +17,18 @@
 # 헤더 data 항목을 보는데, SceneBroadcaster는 그것을 채우지 않기 때문이다.
 # 박스마다 붙인 PosePublisher는 채워 주므로 이름이 살아서 넘어온다.
 
-# 컨베이어가 박스를 미는 힘. 단발(/wrench)이지 지속(/wrench/persistent)이 아니다.
+# 벨트 표면 속도 (m/s).
 #
-# gz-sim의 ApplyLinkWrench는 지속 렌치를 받을 때 persistentWrenches에
-# push_back 한다. 대체가 아니라 누적이고, 매 스텝 전부 더해서 적용한다.
-# 제어 주기마다 지속 렌치를 쏘면 초당 수십 개가 쌓여 몇 초 만에 수백 N이
-# 된다. 실제로 박스가 7 m 밖으로 날아갔다.
+# gz의 TrackController가 이 값을 받아 벨트 링크의 접촉 표면에 속도를 준다.
+# 링크는 움직이지 않고 표면만 흐른다. 실물 벨트와 같다.
 #
-# 단발 렌치는 큐에서 꺼내 한 스텝만 적용하고 버린다. 누적이 없다.
-# 대신 제어 주기가 물리 주기보다 성기므로 그만큼 힘을 키워야 하는데,
-# 그 배율을 conveyor_driver가 cell.yaml의 physics_step에서 계산한다.
-- ros_topic_name: "/world/box_cell/wrench"
-  gz_topic_name: "/world/box_cell/wrench"
-  ros_type_name: "ros_gz_interfaces/msg/EntityWrench"
-  gz_type_name: "gz.msgs.EntityWrench"
-  direction: ROS_TO_GZ
-
-- ros_topic_name: "/world/box_cell/wrench/clear"
-  gz_topic_name: "/world/box_cell/wrench/clear"
-  ros_type_name: "ros_gz_interfaces/msg/Entity"
-  gz_type_name: "gz.msgs.Entity"
+# ApplyLinkWrench로 박스를 미는 방식은 못 쓴다. gz에서 정지한 물체는 건 힘을
+# 받지 않는다(벨트에 서 있는 박스는 50 N에도 꿈쩍 않고, 같은 20 N을 공중에서
+# 떨어지는 박스에 걸면 1.4 m를 날아간다. 실측).
+- ros_topic_name: "/conveyor/belt_speed"
+  gz_topic_name: "/conveyor/belt_speed"
+  ros_type_name: "std_msgs/msg/Float64"
+  gz_type_name: "gz.msgs.Double"
   direction: ROS_TO_GZ
 
 # 카메라 내부 파라미터. 영상과 달리 작고, pose_resolver가 반드시 봐야 한다.

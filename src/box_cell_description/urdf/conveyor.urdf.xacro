@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+<!--
+  통짜 벨트 컨베이어.
+
+  셀 구조물과 따로 두는 이유는 하나다. 셀은 Gazebo에서 static 모델이고,
+  static 모델에는 물리 플러그인을 붙여도 접촉 표면 속도가 적용되지 않는다.
+  그래서 벨트는 별도 모델로 두고 world에 고정 조인트로 붙인다.
+
+  왜 벨트인가. 실물이 벨트다. 그리고 롤러 열로 만들었을 때 두 가지가
+  걸렸다. 60 각 박스가 성긴 롤러 위에서 기울어 서고(실측 28도, 흡착 허용
+  20도 초과), 그걸 막으려 피치를 줄이면 롤러가 83개로 늘어 실시간 계수가
+  0.16으로 떨어졌다.
+
+  어떻게 도는가. gz의 TrackController를 쓴다. 궤도 차량의 무한궤도용
+  시스템인데, 하는 일이 "링크의 접촉 표면에 속도를 주어 닿은 물체를 마찰로
+  밀어내는 것"이라 벨트 컨베이어와 정확히 같다. 링크 자체는 제자리에 있고
+  표면만 흐른다. 실물 벨트도 프레임은 서 있고 벨트 면만 흐른다.
+
+  ApplyLinkWrench로 박스를 미는 방식은 쓸 수 없다. gz에서 정지한 물체는
+  건 힘을 받지 않는다(벨트에 서 있는 박스는 50 N에도 꿈쩍 않고, 같은 20 N을
+  공중에서 떨어지는 박스에 걸면 1.4 m를 날아간다. 실측).
+-->
+<robot name="box_cell_conveyor" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <xacro:arg name="cell_yaml" default="$(find box_cell_description)/config/cell.yaml"/>
+  <xacro:property name="cell" value="${xacro.load_yaml('$(arg cell_yaml)')}"/>
+
+  <xacro:property name="conv" value="${cell['conveyor']}"/>
+  <xacro:property name="belt" value="${conv['belt']}"/>
+  <xacro:property name="infeed" value="${conv['infeed']}"/>
+  <xacro:property name="H"    value="${cell['frame']['table_top_height']}"/>
+
+  <xacro:property name="cy"   value="${belt['center_y']}"/>
+  <xacro:property name="bw"   value="${belt['width']}"/>
+  <xacro:property name="bt"   value="${belt['thickness']}"/>
+  <!-- 벨트 상면이 상판 위 surface_z에 오도록 판 중심을 반 두께만큼 내린다. -->
+  <xacro:property name="top_z" value="${H + belt['surface_z']}"/>
+
+  <link name="world"/>
+
+  <!--
+    벨트 판 하나. 상류 인피드 구간까지 한 장으로 잇는다. 실물에서도 인피드
+    컨베이어와 판독 컨베이어가 이어져 있고, 나눠 봐야 이음매만 생긴다.
+  -->
+  <xacro:property name="bx0" value="${infeed['x_start']}"/>
+  <xacro:property name="bx1" value="${belt['x_end']}"/>
+  <xacro:property name="bl"  value="${bx1 - bx0}"/>
+
+  <link name="belt_surface">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${bl} ${bw} ${bt}"/></geometry>
+      <material name="belt_mat"><color rgba="0.16 0.17 0.19 1"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="${bl} ${bw} ${bt}"/></geometry>
+    </collision>
+    <inertial>
+      <mass value="${belt['mass']}"/>
+      <inertia ixx="1.0" iyy="1.0" izz="1.0" ixy="0" ixz="0" iyz="0"/>
+    </inertial>
+  </link>
+
+  <joint name="belt_fix" type="fixed">
+    <parent link="world"/>
+    <child link="belt_surface"/>
+    <origin xyz="${(bx0 + bx1) / 2} ${cy} ${top_z - bt/2}" rpy="0 0 0"/>
+  </joint>
+
+  <gazebo reference="belt_surface">
+    <!-- 벨트 고무와 골판지. 미끄러지면 박스가 안 실린다. -->
+    <mu1>${belt['friction']}</mu1>
+    <mu2>${belt['friction']}</mu2>
+    <material>
+      <ambient>0.14 0.15 0.17 1</ambient>
+      <diffuse>0.16 0.17 0.19 1</diffuse>
+      <specular>0.05 0.05 0.05 1</specular>
+    </material>
+  </gazebo>
+
+  <gazebo>
+    <!--
+      벨트 구동. velocity_topic으로 표면 속도(m/s)를 받는다.
+      track_orientation 항등 쿼터니언이면 진행 방향이 +x다. 박스가 판독
+      위치 쪽으로 간다.
+      max_command_age를 크게 두어 한 번 보낸 속도가 계속 유지되게 한다.
+      기본값(0.5초)이면 명령이 끊기는 순간 벨트가 선다.
+    -->
+    <plugin filename="gz-sim-track-controller-system"
+            name="gz::sim::systems::TrackController">
+      <link>belt_surface</link>
+      <velocity_topic>/conveyor/belt_speed</velocity_topic>
+      <track_orientation>0 0 0 1</track_orientation>
+      <max_command_age>3600</max_command_age>
+      <max_velocity>1.0</max_velocity>
+      <min_velocity>-1.0</min_velocity>
+      <max_acceleration>5.0</max_acceleration>
+      <min_acceleration>-5.0</min_acceleration>
+      <debug>false</debug>
+    </plugin>
+  </gazebo>
+
+</robot>
