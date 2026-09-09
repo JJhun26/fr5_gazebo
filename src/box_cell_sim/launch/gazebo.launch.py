@@ -180,14 +180,27 @@ def generate_launch_description() -> LaunchDescription:
             "/c2_pallet/color/image",
             "/c3_scene/color/image",
             "/c4_wrist/color/image",
+            # 깊이도 넘긴다. stack_check가 C2 깊이로 적재를 확인한다.
+            # 848x480 float32는 1.63 MB라 컬러와 달리 원본 그대로 와도
+            # 소켓 버퍼(4 MB) 안에 들어간다.
+            "/c2_pallet/depth/image",
         ],
         remappings=[
             ("/c1_conveyor/color/image", "/c1_conveyor/color/image_raw"),
             ("/c2_pallet/color/image", "/c2_pallet/color/image_raw"),
             ("/c3_scene/color/image", "/c3_scene/color/image_raw"),
             ("/c4_wrist/color/image", "/c4_wrist/color/image_raw"),
+            ("/c2_pallet/depth/image", "/c2_pallet/depth/image_raw"),
         ],
-        parameters=[{"use_sim_time": True}],
+        parameters=[
+            {"use_sim_time": True},
+            # JPEG 화질. 기본값 80은 QR 모듈 경계에 링잉을 남긴다.
+            # 판독기가 압축 토픽을 받으므로 여기가 곧 판독 화질이다.
+            # 95면 장당 300 KB 안쪽이라 소켓 버퍼에 넉넉히 들어가면서
+            # 모듈 경계가 산다.
+            {f"{c}.color.image.compressed.jpeg_quality": 95
+             for c in ("c1_conveyor", "c2_pallet", "c3_scene", "c4_wrist")},
+        ],
     )
 
     # 상류 라인 역할. 박스를 만들고 벨트로 들여보낸다.

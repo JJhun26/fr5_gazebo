@@ -98,7 +98,7 @@ def generate_launch_description() -> LaunchDescription:
             output="screen",
             parameters=[
                 sim_time,
-                {"camera": "c1_conveyor", "image_topic": "/c1_conveyor/color/image_raw"},
+                {"camera": "c1_conveyor", "image_topic": "/c1_conveyor/color/image/compressed"},
             ],
         ),
         Node(
@@ -108,7 +108,7 @@ def generate_launch_description() -> LaunchDescription:
             output="screen",
             parameters=[
                 sim_time,
-                {"camera": "c4_wrist", "image_topic": "/c4_wrist/color/image_raw"},
+                {"camera": "c4_wrist", "image_topic": "/c4_wrist/color/image/compressed"},
             ],
         ),
         Node(
