@@ -223,20 +223,44 @@ def down_pose(x: float, y: float, z: float, yaw: float = 0.0) -> np.ndarray:
     return transform(np.array([x, y, z]), rot)
 
 
-def slot_pose(cell: dict, pallet: dict, index: int) -> tuple[float, float, float]:
-    """기획서 5.3의 격자 공식 그대로."""
-    pitch = cell["pallet"]["slots"]["pitch"]
-    box_h = cell["box"]["size"][2]
-    col = index % 2
-    row = (index // 2) % 2
-    layer = index // 4
-    px, py = pallet["center"]
-    pz = cell["frame"]["table_top_height"]
-    return (
-        px + (col - 0.5) * pitch,
-        py + (row - 0.5) * pitch,
-        pz + cell["pallet"]["thickness"] + layer * box_h + box_h,
+def pallet_targets(cell: dict, pallet: dict, kind: str) -> list[tuple[str, float, float, float]]:
+    """이 팔레트에 그 규격을 채웠을 때 나오는 적재 자리들. (이름, x, y, 상면 z).
+
+    기획서 5.3은 격자 공식으로 자리를 정했다. 규격이 여러 가지가 되면서
+    그 공식을 버렸고, 자리는 실제 적재에 쓰는 패커가 정한다. 도구가 다른
+    계산을 쓰면 통과해도 의미가 없으므로 같은 패커를 돌린다.
+    """
+    import sys as _sys
+
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src/box_cell_common"))
+    from box_cell_common.pallet_pack import Packer
+
+    cfg = cell["pallet"]["slots"]
+    pk = Packer(
+        size=float(cell["pallet"]["size"]),
+        margin=float(cfg["margin"]),
+        gap=float(cfg["gap"]),
+        step=float(cfg["step"]),
+        max_layers=int(cfg["layers"]),
     )
+    sx, sy, sz = cell["box"]["kinds"][kind]["size"]
+    px, py = pallet["center"]
+    base = cell["frame"]["table_top_height"] + cell["pallet"]["thickness"]
+    out = []
+    while len(out) < 8:
+        pl = pk.find(sx, sy, sz)
+        if pl is None:
+            break
+        pk.add(pl, "")
+        out.append(
+            (
+                f"P{pallet['id']} {kind} #{len(out)} (층{pl.layer})",
+                px + pl.x,
+                py + pl.y,
+                base + pl.z_base + pl.sz,
+            )
+        )
+    return out
 
 
 def main() -> int:
@@ -247,6 +271,29 @@ def main() -> int:
 
     cell = yaml.safe_load(args.cell.read_text())
     chain = Chain(args.urdf)
+
+    # MoveIt의 joint_limits.yaml이 URDF보다 좁게 묶은 관절이 있으면 그것도 지킨다.
+    #
+    # 안 보면 이 도구가 "도달한다"고 한 해를 MoveIt이 못 쓰는 일이 생긴다.
+    # 실제로 그랬다. 예외 통 투하 자세를 j2=-180.7, j4=+4.7, j5=-90으로 풀어
+    # 통과 판정했는데, MoveIt은 그 범위를 쓰지 않는다. 적재 하강이 풀리는
+    # 자세 계열로 로봇을 묶어 두었기 때문이다(joint_limits.yaml 주석 참고).
+    ml = Path(__file__).resolve().parent.parent / "src/box_cell_moveit_config/config/joint_limits.yaml"
+    narrowed: dict[str, tuple[float, float]] = {}
+    if ml.exists():
+        jl = (yaml.safe_load(ml.read_text()) or {}).get("joint_limits", {}) or {}
+        for name, spec in jl.items():
+            if spec.get("has_position_limits"):
+                narrowed[name] = (float(spec["min_position"]), float(spec["max_position"]))
+    if narrowed:
+        for i, name in enumerate(chain.movable):
+            if name in narrowed:
+                lo, hi = narrowed[name]
+                a, b = chain.limits[i]
+                chain.limits[i] = (max(a, lo), min(b, hi))
+        print("MoveIt이 좁힌 관절 : " + ", ".join(
+            f"{n} [{math.degrees(v[0]):+.0f}, {math.degrees(v[1]):+.0f}]"
+            for n, v in narrowed.items()))
     print(f"사슬 : world -> tcp_link, 가동 관절 {chain.movable}")
 
     home = np.array(cell["tuning"]["home_joints"], dtype=float)
@@ -285,12 +332,22 @@ def main() -> int:
 
     tun = cell["tuning"]
     rs = cell["read_station"]
-    box_h = cell["box"]["size"][2]
+    # 규격이 여러 가지라 "박스 높이"라는 하나의 값이 없다. 판독 자리는
+    # 제일 낮은 규격과 제일 높은 규격을 둘 다 본다. 컵이 가야 하는 높이가
+    # 그만큼 벌어지기 때문이다.
+    kinds = cell["box"]["kinds"]
+    h_min = min(k["size"][2] for k in kinds.values())
+    h_max = max(k["size"][2] for k in kinds.values())
+    box_h = kinds[cell["box"].get("default_kind", "M")]["size"][2]
     read_top = top + rs["surface_z"] + box_h
     targets.append(("판독 파지", down_pose(rs["center"][0], rs["center"][1], read_top)))
     targets.append(("판독 접근", down_pose(rs["center"][0], rs["center"][1], read_top + tun["pick_approach"])))
     targets.append(("판독 상공", down_pose(rs["center"][0], rs["center"][1], top + tun["read_hover_z"])))
     # 라벨이 45도 돌아온 최악의 경우
+    targets.append(("판독 파지 (제일 낮은 규격)",
+                    down_pose(rs["center"][0], rs["center"][1], top + rs["surface_z"] + h_min)))
+    targets.append(("판독 파지 (제일 높은 규격)",
+                    down_pose(rs["center"][0], rs["center"][1], top + rs["surface_z"] + h_max)))
     targets.append(("판독 파지 yaw+45", down_pose(rs["center"][0], rs["center"][1], read_top, math.radians(45))))
     targets.append(("판독 파지 yaw-45", down_pose(rs["center"][0], rs["center"][1], read_top, math.radians(-45))))
     # 디팔레타이징한 박스를 벨트에 올려 놓는 자리
@@ -298,10 +355,15 @@ def main() -> int:
     targets.append(("벨트 투입", down_pose(conv["infeed_x"], conv["belt"]["center_y"], read_top)))
     targets.append(("벨트 투입 상공", down_pose(conv["infeed_x"], conv["belt"]["center_y"], top + tun["read_hover_z"])))
 
+    # 적재 자리. 규격마다 자리가 달라지므로 제일 작은 것과 제일 큰 것을
+    # 둘 다 본다. 작은 규격은 자리가 많아 팔레트 구석까지 가고, 큰 규격은
+    # 높이 올라간다. 양 끝이 되면 사이는 된다.
+    small = min(kinds, key=lambda k: kinds[k]["size"][2])
+    large = max(kinds, key=lambda k: kinds[k]["size"][2])
     for unit in cell["pallet"]["units"]:
-        for i in range(8):
-            x, y, z = slot_pose(cell, unit, i)
-            targets.append((f"P{unit['id']} 슬롯 {i} (층{i//4})", down_pose(x, y, z)))
+        for kind in dict.fromkeys((small, large)):
+            for name, x, y, z in pallet_targets(cell, unit, kind):
+                targets.append((name, down_pose(x, y, z)))
         cx, cy = unit["center"]
         targets.append((f"P{unit['id']} 상공", down_pose(cx, cy, top + tun["pallet_hover_z"])))
 
