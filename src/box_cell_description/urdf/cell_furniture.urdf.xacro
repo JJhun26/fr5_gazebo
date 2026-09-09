@@ -25,7 +25,6 @@
   <xacro:property name="conv"  value="${cell['conveyor']}"/>
   <xacro:property name="pal"   value="${cell['pallet']}"/>
   <xacro:property name="bin_"  value="${cell['exception_bin']}"/>
-  <xacro:property name="gan"   value="${cell['gantry']}"/>
   <xacro:property name="th"    value="${tbl['top_thickness']}"/>
   <xacro:property name="H"     value="${cell['frame']['table_top_height']}"/>
 
@@ -233,55 +232,57 @@
   <xacro:cell_box name="exception_bin_w_ymax" sx="${bx}" sy="${bwall}" sz="${bh}"
       x="${bcx}" y="${bcy + by/2 - bwall/2}" z="${bh/2}" rgba="0.85 0.35 0.35 0.75"/>
 
-  <!-- ================= 카메라 갠트리 =================
-       기둥 두 개가 로봇 도달 고리(외경 884) 안에 있다. Planning Scene 등록이
-       선택이 아니라 필수인 이유다. tools/verify_layout.py가 매번 확인한다. -->
-  <xacro:property name="gs" value="${gan['section']}"/>
-  <xacro:property name="gan_rgba" value="0.42 0.44 0.48 1"/>
+  <!-- ================= 카메라 지주 =================
+       바닥에서 올라와 ㄱ자로 작업 구역 위로 들어오는 알루미늄 프로파일
+       프레임 두 벌. 전에는 상판 위에 세운 갠트리였는데, 실물 셀은 바닥에
+       선 프레임이고 상판 위 공간을 기둥이 차지하지 않는다.
 
-  <xacro:macro name="gantry_post" params="id x y">
-    <xacro:cell_box name="gantry_post_${id}" sx="${gs}" sy="${gs}" sz="${gan['post_height']}"
-        x="${x}" y="${y}" z="${gan['post_height']/2}" rgba="${gan_rgba}"/>
+       기둥은 상판 바깥(x=1.310)이지만 가로 팔은 로봇 도달 고리 안으로
+       들어온다. Planning Scene 등록이 선택이 아니라 필수인 이유다.
+       tools/verify_layout.py와 verify_camera_clearance.py가 매번 확인한다. -->
+  <xacro:property name="cfr" value="${cell['camera_frame']}"/>
+  <xacro:property name="gs" value="${cfr['section']}"/>
+  <xacro:property name="floor_z" value="${cfr['floor_z']}"/>
+  <xacro:property name="arm_z" value="${cfr['arm_z']}"/>
+  <xacro:property name="gan_rgba" value="0.62 0.64 0.67 1"/>
+
+  <!-- 기둥. 바닥에서 가로 팔 윗면까지. -->
+  <xacro:macro name="camera_post" params="id x y">
+    <xacro:cell_box name="camera_post_${id}" sx="${gs}" sy="${gs}"
+        sz="${arm_z + gs/2 - floor_z}"
+        x="${x}" y="${y}" z="${(arm_z + gs/2 + floor_z)/2}" rgba="${gan_rgba}"/>
+    <!-- 바닥 받침판. 프로파일 프레임은 발판으로 선다. -->
+    <xacro:cell_box name="camera_foot_${id}" sx="0.180" sy="0.180" sz="0.012"
+        x="${x}" y="${y}" z="${floor_z + 0.006}" rgba="0.45 0.47 0.50 1"/>
   </xacro:macro>
-  <xacro:gantry_post id="1" x="${gan['posts'][0]['xy'][0]}" y="${gan['posts'][0]['xy'][1]}"/>
-  <xacro:gantry_post id="2" x="${gan['posts'][1]['xy'][0]}" y="${gan['posts'][1]['xy'][1]}"/>
+  <xacro:camera_post id="1" x="${cfr['posts'][0]['xy'][0]}" y="${cfr['posts'][0]['xy'][1]}"/>
+  <xacro:camera_post id="2" x="${cfr['posts'][1]['xy'][0]}" y="${cfr['posts'][1]['xy'][1]}"/>
 
-  <xacro:property name="cb" value="${gan['cross_beam']}"/>
-  <xacro:cell_box name="gantry_cross_beam" sx="${gs}" sy="${cb['y_max']-cb['y_min']+gs}" sz="${gs}"
-      x="${cb['x']}" y="${(cb['y_min']+cb['y_max'])/2}" z="${cb['z']}" rgba="${gan_rgba}"/>
-
-  <xacro:property name="ac" value="${gan['arm_conveyor']}"/>
-  <xacro:cell_box name="gantry_arm_conveyor" sx="${ac['x_max']-ac['x_min']}" sy="${gs}" sz="${gs}"
-      x="${(ac['x_min']+ac['x_max'])/2}" y="${ac['y']}" z="${ac['z']}" rgba="${gan_rgba}"/>
-
-  <xacro:property name="ap" value="${gan['arm_pallet']}"/>
-  <xacro:cell_box name="gantry_arm_pallet" sx="${ap['x_max']-ap['x_min']}" sy="${gs}" sz="${gs}"
-      x="${(ap['x_min']+ap['x_max'])/2}" y="${ap['y']}" z="${ap['z']}" rgba="${gan_rgba}"/>
-
-  <!-- ================= 조명 =================
-       판독 구간 좌우 저각 바 2개. C1은 x 방향으로 기울어 있으므로 바는 y 양쪽에
-       둔다. C1과 같은 방향에서 비추면 정반사가 렌즈로 되돌아온다(기획서 5.4).
-       빛 자체는 월드 SDF가 만들고 여기서는 형상만 둔다. -->
-  <xacro:property name="lit" value="${cell['lighting']}"/>
-  <xacro:macro name="light_bar" params="id y">
-    <xacro:cell_box name="light_bar_${id}" sx="${lit['length']}" sy="0.025" sz="0.030"
-        x="${lit['center_x']}" y="${y}" z="${lit['z']}" rgba="0.95 0.95 0.90 1" collide="false"/>
-    <xacro:cell_box name="light_post_${id}_a" sx="0.020" sy="0.020" sz="${lit['z'] - bz}"
-        x="${lit['post_x'][0]}" y="${y}" z="${(lit['z'] + bz)/2}" rgba="0.50 0.52 0.55 1"/>
-    <xacro:cell_box name="light_post_${id}_b" sx="0.020" sy="0.020" sz="${lit['z'] - bz}"
-        x="${lit['post_x'][1]}" y="${y}" z="${(lit['z'] + bz)/2}" rgba="0.50 0.52 0.55 1"/>
+  <!-- 가로 팔. 기둥에서 작업 구역 쪽으로 뻗는다. -->
+  <xacro:macro name="camera_arm" params="id y x0 x1">
+    <xacro:cell_box name="camera_arm_${id}" sx="${x1 - x0}" sy="${gs}" sz="${gs}"
+        x="${(x0 + x1)/2}" y="${y}" z="${arm_z}" rgba="${gan_rgba}"/>
   </xacro:macro>
-  <xacro:light_bar id="near" y="${lit['y_near']}"/>
-  <xacro:light_bar id="far"  y="${lit['y_far']}"/>
+  <xacro:camera_arm id="conveyor" y="${cfr['arms'][0]['y']}"
+      x0="${cfr['arms'][0]['x_min']}" x1="${cfr['arms'][0]['x_max']}"/>
+  <xacro:camera_arm id="pallet" y="${cfr['arms'][1]['y']}"
+      x0="${cfr['arms'][1]['x_min']}" x1="${cfr['arms'][1]['x_max']}"/>
 
-  <!-- ================= 갠트리 카메라 3대 ================= -->
+  <!-- 기둥 2를 기둥 1에 잇는 짧은 가로대. 프레임이 혼자 서지 않게 묶는다. -->
+  <xacro:cell_box name="camera_frame_tie" sx="${gs}"
+      sy="${cfr['posts'][0]['xy'][1] - cfr['posts'][1]['xy'][1]}" sz="${gs}"
+      x="${cfr['posts'][0]['xy'][0]}"
+      y="${(cfr['posts'][0]['xy'][1] + cfr['posts'][1]['xy'][1])/2}"
+      z="${arm_z}" rgba="${gan_rgba}"/>
+
+  <!-- ================= 지주에 달리는 카메라 3대 ================= -->
   <xacro:property name="cams" value="${cell['cameras']}"/>
 
-  <xacro:macro name="gantry_camera" params="key">
+  <xacro:macro name="frame_camera" params="key">
     <xacro:property name="c" value="${cams[key]}"/>
     <!-- 카메라를 매다는 브래킷. 종류는 cell.yaml이 정한다. -->
     <xacro:if value="${c['bracket']['kind'] == 'drop'}">
-      <xacro:cell_box name="${key}_bracket" sx="${gan['drop']['section']}" sy="${gan['drop']['section']}"
+      <xacro:cell_box name="${key}_bracket" sx="${cfr['drop']['section']}" sy="${cfr['drop']['section']}"
           sz="${c['bracket']['from_z'] - c['xyz'][2]}"
           x="${c['xyz'][0]}" y="${c['xyz'][1]}" z="${(c['bracket']['from_z'] + c['xyz'][2])/2}"
           rgba="0.50 0.52 0.55 1"/>
@@ -293,9 +294,9 @@
     </xacro:realsense>
   </xacro:macro>
 
-  <xacro:gantry_camera key="c1_conveyor"/>
-  <xacro:gantry_camera key="c2_pallet"/>
-  <xacro:gantry_camera key="c3_scene"/>
+  <xacro:frame_camera key="c1_conveyor"/>
+  <xacro:frame_camera key="c2_pallet"/>
+  <xacro:frame_camera key="c3_scene"/>
 
   <!-- Gazebo : 셀 전체가 static이다. 물리에서 빠지고 바닥에 박혀 있다. -->
   <gazebo>
@@ -303,13 +304,5 @@
   </gazebo>
 
   <!-- 벨트 표면 마찰. 박스가 미끄러지지 않고 실려 가야 한다. -->
-  <gazebo reference="conveyor_belt">
-    <mu1>1.0</mu1>
-    <mu2>1.0</mu2>
-    <material>
-      <ambient>0.18 0.20 0.22 1</ambient>
-      <diffuse>0.18 0.20 0.22 1</diffuse>
-    </material>
-  </gazebo>
 
 </robot>

@@ -333,45 +333,49 @@ class CellGeometry:
 
         # 카메라 갠트리. 기둥 두 개가 도달 고리(외경 884) 안에 있다.
         # 이것을 빼먹으면 팔레트로 가는 궤적이 기둥을 관통한다.
-        gan = self.data["gantry"]
-        gs = float(gan["section"])
-        for post in gan["posts"]:
+        # 카메라 지주. 기둥은 상판 바깥 바닥에 서지만 가로 팔은 도달 고리
+        # 안으로 들어온다. 등록하지 않으면 MoveIt에게는 없는 물건이다.
+        cfr = self.data["camera_frame"]
+        gs = float(cfr["section"])
+        floor_z = float(cfr["floor_z"])
+        arm_z = float(cfr["arm_z"])
+        post_top = arm_z + gs / 2
+        for post in cfr["posts"]:
             out.append(
                 {
-                    "name": f"gantry_post_{post['id']}",
-                    "size": (gs, gs, float(gan["post_height"])),
+                    "name": f"camera_post_{post['id']}",
+                    "size": (gs, gs, post_top - floor_z),
                     "pose": (
                         float(post["xy"][0]),
                         float(post["xy"][1]),
-                        self.table_top + float(gan["post_height"]) / 2,
+                        self.table_top + (post_top + floor_z) / 2,
                     ),
                 }
             )
-        cb = gan["cross_beam"]
-        out.append(
-            {
-                "name": "gantry_cross_beam",
-                "size": (gs, float(cb["y_max"]) - float(cb["y_min"]) + gs, gs),
-                "pose": (
-                    float(cb["x"]),
-                    (float(cb["y_min"]) + float(cb["y_max"])) / 2,
-                    self.table_top + float(cb["z"]),
-                ),
-            }
-        )
-        for key in ("arm_conveyor", "arm_pallet"):
-            arm = gan[key]
+        for arm in cfr["arms"]:
             out.append(
                 {
-                    "name": f"gantry_{key}",
+                    "name": f"camera_arm_{arm['id']}",
                     "size": (float(arm["x_max"]) - float(arm["x_min"]), gs, gs),
                     "pose": (
                         (float(arm["x_min"]) + float(arm["x_max"])) / 2,
                         float(arm["y"]),
-                        self.table_top + float(arm["z"]),
+                        self.table_top + arm_z,
                     ),
                 }
             )
+        ys = [float(p["xy"][1]) for p in cfr["posts"]]
+        out.append(
+            {
+                "name": "camera_frame_tie",
+                "size": (gs, max(ys) - min(ys), gs),
+                "pose": (
+                    float(cfr["posts"][0]["xy"][0]),
+                    (max(ys) + min(ys)) / 2,
+                    self.table_top + arm_z,
+                ),
+            }
+        )
 
         # 카메라 본체도 넣는다. 손목이 스치기 쉬운 높이에 있다.
         for key in ("c1_conveyor", "c2_pallet"):

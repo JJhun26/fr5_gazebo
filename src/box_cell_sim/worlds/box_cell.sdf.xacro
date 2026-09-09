@@ -44,8 +44,15 @@
       <background_color>0.85 0.87 0.90</background_color>
     </plugin>
 
+    <!-- 노출 관련 수치는 전부 cell.yaml의 lighting: 블록에서 온다.
+         실물 카메라와 달리 gz 카메라에는 자동 노출이 없어서, 조명이 세면
+         판독 구간이 그대로 타 버린다. 한 곳에서 조절할 수 있어야 한다.
+         tools/measure_read_rate.py가 그 결과를 숫자로 돌려준다. -->
+    <xacro:property name="amb" value="${lit['ambient']}"/>
+    <xacro:property name="att" value="${lit['attenuation']}"/>
+
     <scene>
-      <ambient>0.55 0.55 0.58 1</ambient>
+      <ambient>${amb} ${amb} ${amb + 0.03} 1</ambient>
       <background>0.85 0.87 0.90 1</background>
       <grid>false</grid>
       <shadows>true</shadows>
@@ -56,7 +63,7 @@
     <!-- 실내 천장등. 셀 전체를 고르게 받친다. -->
     <light type="directional" name="ceiling">
       <pose>0.6 0.4 3.0 0 0 0</pose>
-      <diffuse>0.75 0.75 0.75 1</diffuse>
+      <diffuse>${lit['ceiling_diffuse']} ${lit['ceiling_diffuse']} ${lit['ceiling_diffuse']} 1</diffuse>
       <specular>0.15 0.15 0.15 1</specular>
       <direction>-0.25 -0.35 -0.90</direction>
       <cast_shadows>true</cast_shadows>
@@ -68,33 +75,15 @@
       </attenuation>
     </light>
 
-    <!-- 판독 구간 저각 바 2개.
-         C1의 광축은 x로 기울어 있으므로 조명은 y 양쪽에 둔다.
-         같은 방향에서 비추면 라벨 정반사가 그대로 렌즈로 돌아온다. -->
-    <xacro:macro name="read_light" params="name y">
-      <light type="spot" name="${name}">
-        <pose>${lit['center_x']} ${y} ${H + lit['z']} 0 0 0</pose>
-        <diffuse>1.0 0.99 0.95 1</diffuse>
-        <specular>0.3 0.3 0.3 1</specular>
-        <!-- 판독 위치를 비스듬히 내려다본다. 저각으로 스쳐야 라벨 인쇄면의
-             굴곡이 드러나고 정반사 스팟이 렌즈 밖으로 빠진다. -->
-        <direction>0 ${(cell['read_station']['center'][1] - y)} ${-(lit['z'] - cell['conveyor']['belt']['surface_z'])}</direction>
-        <spot>
-          <inner_angle>${radians(lit['cone_deg']) * 0.5}</inner_angle>
-          <outer_angle>${radians(lit['cone_deg'])}</outer_angle>
-          <falloff>1.2</falloff>
-        </spot>
-        <attenuation>
-          <range>3.0</range>
-          <constant>0.4</constant>
-          <linear>0.2</linear>
-          <quadratic>0.05</quadratic>
-        </attenuation>
-        <cast_shadows>false</cast_shadows>
-      </light>
-    </xacro:macro>
-    <xacro:read_light name="read_light_near" y="${lit['y_near']}"/>
-    <xacro:read_light name="read_light_far"  y="${lit['y_far']}"/>
+    <!-- 판독 전용 조명은 없앴다.
+         컨베이어에 붙어 있던 조명 바와 그 받침 기둥을 걷어냈다. 대신 천장등
+         하나로 셀 전체를 고르게 받친다. 실물 셀도 판독 구간에 전용 조명을
+         달지 않았다.
+
+         조명을 걷어도 판독은 된다. 판독을 어렵게 하던 것은 조명이 아니라
+         QR 여백이 규격 미달이었던 것이고(README 실측 7), 그걸 고친 뒤에는
+         40/40이 나온다. 오히려 전용 조명이 판독 구간을 태우고 있었다
+         (평균 밝기 203, 포화 화소 30%). -->
 
     <model name="ground_plane">
       <static>true</static>
@@ -120,12 +109,17 @@
     <gui fullscreen="0">
       <plugin filename="MinimalScene" name="3D View">
         <gz-gui>
-          <title>box_cell</title>
+          <title>3D View</title>
           <property type="bool" key="showTitleBar">false</property>
+          <!-- docked 가 아니면 다른 창의 anchors target="3D View" 가 기준을
+               못 찾아 전부 왼쪽 위(0,0)에 겹쳐 붙는다. 실제로 판독 카메라
+               창이 햄버거 메뉴와 재생 버튼을 덮었다. gz 기본 gui.config도
+               3D 뷰를 docked 로 둔다. -->
+          <property type="string" key="state">docked</property>
         </gz-gui>
         <engine>ogre2</engine>
         <scene>scene</scene>
-        <ambient_light>0.55 0.55 0.58</ambient_light>
+        <ambient_light>${amb} ${amb} ${amb + 0.03}</ambient_light>
         <background_color>0.85 0.87 0.90</background_color>
         <camera_pose>-0.9 -1.1 2.0 0 0.62 0.72</camera_pose>
       </plugin>
@@ -166,6 +160,7 @@
         <gz-gui>
           <property type="bool" key="resizable">false</property>
           <property type="double" key="height">72</property>
+          <property type="double" key="z">1</property>
           <property type="string" key="state">floating</property>
           <anchors target="3D View">
             <line own="left" target="left"/>
@@ -179,8 +174,9 @@
       <plugin filename="WorldStats" name="World stats">
         <gz-gui>
           <property type="bool" key="resizable">false</property>
-          <property type="double" key="width">250</property>
+          <property type="double" key="width">290</property>
           <property type="double" key="height">110</property>
+          <property type="double" key="z">1</property>
           <property type="string" key="state">floating</property>
           <anchors target="3D View">
             <line own="right" target="right"/>
@@ -191,13 +187,24 @@
         <real_time>true</real_time>
         <real_time_factor>true</real_time_factor>
       </plugin>
-      <plugin filename="ImageDisplay" name="C1 conveyor">
+      <!-- C1이 보는 화면. 판독이 왜 되고 안 되는지는 여기서 바로 보인다.
+           앵커를 주지 않으면 3D 뷰 왼쪽 위 모서리(0,0)에 겹쳐 붙어 툴바를
+           가린다. 오른쪽 위로 띄우고 제목 줄을 남겨 손으로 옮길 수 있게 한다.
+           토픽 이름은 realsense_macro.xacro의 센서 토픽과 같아야 한다.
+           gz 센서는 "<카메라>/color/image"로 낸다. -->
+      <plugin filename="ImageDisplay" name="C1 판독 카메라">
         <gz-gui>
-          <property type="double" key="width">380</property>
-          <property type="double" key="height">280</property>
+          <property type="double" key="width">420</property>
+          <property type="double" key="height">320</property>
+          <property type="double" key="z">1</property>
           <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">true</property>
+          <anchors target="3D View">
+            <line own="right" target="right"/>
+            <line own="top" target="top"/>
+          </anchors>
         </gz-gui>
-        <topic>/c1_conveyor/color</topic>
+        <topic>/c1_conveyor/color/image</topic>
       </plugin>
     </gui>
 
