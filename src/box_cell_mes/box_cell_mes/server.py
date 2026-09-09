@@ -14,6 +14,9 @@ PostgreSQL로 바꾼다.
       POST /events         이벤트 기록. 사진 경로와 시각 포함.
       GET  /events         대시보드용 이력
       GET  /stats          집계
+      GET  /tables         테이블 목록과 스키마, 행 수
+      GET  /table/{name}   그 테이블의 원본 행 (limit, offset)
+      GET  /query?sql=     읽기 전용 질의 (SELECT / WITH / PRAGMA)
 
 event_id를 UNIQUE로 잡는 것이 요점이다. 엣지의 mes_client가 통신 두절 뒤
 재전송할 때 같은 이벤트가 두 번 들어오는데, 여기서 조용히 무시해야 한다.
@@ -34,10 +37,16 @@ from pathlib import Path
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
-    code     TEXT PRIMARY KEY,
-    name     TEXT NOT NULL,
-    category TEXT,
-    note     TEXT
+    code      TEXT PRIMARY KEY,
+    name      TEXT NOT NULL,
+    category  TEXT,
+    note      TEXT,
+    -- 박스 정보. 셀이 판독한 코드로 여기를 조회해 규격을 알아낸다.
+    -- 규격이 여러 가지가 되면서 MES가 치수의 유일한 원본이 되었다.
+    -- 상세는 box_cell_msgs/srv/ItemQuery.srv 주석 참고.
+    kind      TEXT,               -- S | M | L | XL
+    weight_kg REAL,
+    handling  TEXT                -- normal | fragile | hazmat | oversize
 );
 CREATE TABLE IF NOT EXISTS events (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,18 +69,50 @@ CREATE INDEX IF NOT EXISTS events_code ON events(code);
 class Store:
     def __init__(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        self.path = path
         self.db = sqlite3.connect(str(path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        self._migrate()
         self.db.commit()
+
+    def _migrate(self) -> None:
+        """이미 있는 DB에 뒤늦게 생긴 열을 붙인다.
+
+        DB 파일은 도커 볼륨에 남아 실행 사이에 살아 있다. 그래서
+        CREATE TABLE IF NOT EXISTS는 옛 파일을 고치지 못한다. 규격/중량/
+        취급 열을 추가했을 때 실제로 seed가 'no column named kind'로 죽어
+        MES가 통째로 안 떴고, 셀은 모든 코드를 미등록으로 보고 박스를
+        전부 예외 통에 버렸다.
+        """
+        want = {
+            "items": {"kind": "TEXT", "weight_kg": "REAL", "handling": "TEXT"},
+        }
+        for table, cols in want.items():
+            have = {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}
+            for col, typ in cols.items():
+                if col not in have:
+                    self.db.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
 
     def seed(self, items_json: Path) -> int:
         if not items_json.exists():
             return 0
         rows = json.loads(items_json.read_text())
         self.db.executemany(
-            "INSERT OR REPLACE INTO items(code, name, category, note) VALUES (?,?,?,?)",
-            [(r["code"], r["name"], r.get("category", ""), r.get("note", "")) for r in rows],
+            "INSERT OR REPLACE INTO items(code, name, category, note, kind, weight_kg,"
+            " handling) VALUES (?,?,?,?,?,?,?)",
+            [
+                (
+                    r["code"],
+                    r["name"],
+                    r.get("category", ""),
+                    r.get("note", ""),
+                    r.get("kind", ""),
+                    float(r.get("weight_kg", 0.0)),
+                    r.get("handling", "normal"),
+                )
+                for r in rows
+            ],
         )
         self.db.commit()
         return len(rows)
@@ -118,6 +159,101 @@ class Store:
             "SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------ DB 브라우저
+    #
+    # 대시보드가 집계만 보여 주면 MES가 아니라 상태 표시등이다. 운영자가
+    # "그 코드가 언제 뭐로 들어왔지"를 물을 수 있어야 데이터베이스다.
+    # 그래서 스키마, 테이블 원본, 읽기 전용 질의를 함께 연다.
+
+    def tables(self) -> list[dict]:
+        """테이블 목록과 스키마. sqlite_ 로 시작하는 내부 테이블은 뺀다."""
+        out = []
+        names = [
+            r["name"] for r in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
+        for name in names:
+            cols = [
+                {
+                    "name": c["name"],
+                    "type": c["type"] or "",
+                    "pk": bool(c["pk"]),
+                    "notnull": bool(c["notnull"]),
+                }
+                # 테이블 이름은 sqlite_master에서 온 것이라 사용자 입력이 아니다.
+                for c in self.db.execute(f"PRAGMA table_info({name})")
+            ]
+            rows = self.db.execute(f"SELECT COUNT(*) n FROM {name}").fetchone()["n"]
+            out.append({"name": name, "rows": rows, "columns": cols})
+        return out
+
+    def table_rows(self, table: str, limit: int = 50, offset: int = 0) -> dict:
+        """테이블 한 쪽. 최신 것이 위로 오게 rowid 역순으로 낸다."""
+        known = {t["name"] for t in self.tables()}
+        if table not in known:
+            return {"error": f"모르는 테이블 '{table}'"}
+        limit = max(1, min(int(limit), 500))
+        offset = max(0, int(offset))
+        total = self.db.execute(f"SELECT COUNT(*) n FROM {table}").fetchone()["n"]
+        rows = self.db.execute(
+            f"SELECT * FROM {table} ORDER BY rowid DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        cols = [c["name"] for c in self.db.execute(f"PRAGMA table_info({table})")]
+        return {
+            "table": table, "total": total, "limit": limit, "offset": offset,
+            "columns": cols, "rows": [dict(r) for r in rows],
+        }
+
+    def query(self, sql: str, limit: int = 200) -> dict:
+        """읽기 전용 질의.
+
+        운영자가 직접 물어볼 수 있어야 데이터베이스다. 그런데 대시보드는
+        인증이 없으므로 **쓰기는 절대 열지 않는다**. 막는 방법이 두 겹이다.
+
+          1. 문장을 SELECT/WITH/PRAGMA 하나로 제한한다. 세미콜론으로 문장을
+             더 붙이는 것도 막는다.
+          2. 그것을 통과해도 **읽기 전용으로 다시 연 커넥션**에서 실행한다.
+             1번을 뚫는 표현이 있더라도 SQLite가 쓰기를 거부한다. 걸러 내기만
+             믿지 않는 것이 요점이다.
+        """
+        text = (sql or "").strip().rstrip(";").strip()
+        if not text:
+            return {"error": "질의가 비었다"}
+        if ";" in text:
+            return {"error": "문장은 하나만 된다"}
+        head = text.split(None, 1)[0].upper()
+        if head not in ("SELECT", "WITH", "PRAGMA"):
+            return {"error": "읽기 전용이다. SELECT / WITH / PRAGMA만 된다."}
+        # PRAGMA는 스키마를 들여다보는 것만 허용한다. 값을 넣는 형태
+        # (PRAGMA foo=bar)는 설정을 바꾸는 쪽이다. 읽기 전용 커넥션이라
+        # 실제로 파일을 건드리지는 못하지만, 열어 둘 이유가 없다.
+        if head == "PRAGMA" and "=" in text:
+            return {"error": "PRAGMA는 조회 형태만 된다"}
+
+        limit = max(1, min(int(limit), 1000))
+        t0 = time.time()
+        try:
+            ro = sqlite3.connect(f"file:{self.path}?mode=ro", uri=True)
+            ro.row_factory = sqlite3.Row
+            try:
+                cur = ro.execute(text)
+                rows = cur.fetchmany(limit)
+                cols = [d[0] for d in cur.description] if cur.description else []
+                more = cur.fetchone() is not None
+            finally:
+                ro.close()
+        except sqlite3.Error as exc:
+            return {"error": str(exc)}
+        return {
+            "columns": cols,
+            "rows": [dict(r) for r in rows],
+            "truncated": more,
+            "elapsed_ms": round((time.time() - t0) * 1000, 1),
+        }
 
     def stats(self) -> dict:
         def one(sql: str, *args):
@@ -167,16 +303,34 @@ def run_stdlib(store: Store, host: str, port: int, static: Path) -> None:
             pass
 
         def do_GET(self) -> None:  # noqa: N802
-            path = self.path.split("?")[0]
+            from urllib.parse import parse_qs, unquote, urlsplit
+            parts = urlsplit(self.path)
+            path = parts.path
+            q = parse_qs(parts.query)
+
+            def arg(name: str, default: str = "") -> str:
+                return q.get(name, [default])[0]
+
             if path == "/health":
-                self._json(200, {"ok": True})
+                self._json(200, {"ok": True, "db": str(store.path)})
             elif path.startswith("/items/"):
-                item = store.item(path.rsplit("/", 1)[1])
+                item = store.item(unquote(path.rsplit("/", 1)[1]))
                 self._json(200 if item else 404, item or {"error": "not found"})
             elif path == "/events":
-                self._json(200, store.events())
+                self._json(200, store.events(int(arg("limit", "100"))))
             elif path == "/stats":
                 self._json(200, store.stats())
+            elif path == "/tables":
+                self._json(200, store.tables())
+            elif path.startswith("/table/"):
+                res = store.table_rows(
+                    unquote(path.rsplit("/", 1)[1]),
+                    int(arg("limit", "50")), int(arg("offset", "0")),
+                )
+                self._json(400 if "error" in res else 200, res)
+            elif path == "/query":
+                res = store.query(arg("sql"), int(arg("limit", "200")))
+                self._json(400 if "error" in res else 200, res)
             elif path in ("/", "/index.html"):
                 page = static / "dashboard.html"
                 if page.exists():
@@ -211,7 +365,7 @@ def run_fastapi(store: Store, host: str, port: int, static: Path) -> None:
 
     @app.get("/health")
     def health() -> dict:
-        return {"ok": True}
+        return {"ok": True, "db": str(store.path)}
 
     @app.get("/items/{code}")
     def get_item(code: str) -> dict:
@@ -231,6 +385,24 @@ def run_fastapi(store: Store, host: str, port: int, static: Path) -> None:
     @app.get("/stats")
     def get_stats() -> dict:
         return store.stats()
+
+    @app.get("/tables")
+    def get_tables() -> list[dict]:
+        return store.tables()
+
+    @app.get("/table/{name}")
+    def get_table(name: str, limit: int = 50, offset: int = 0) -> dict:
+        res = store.table_rows(name, limit, offset)
+        if "error" in res:
+            raise HTTPException(status_code=400, detail=res["error"])
+        return res
+
+    @app.get("/query")
+    def get_query(sql: str, limit: int = 200) -> dict:
+        res = store.query(sql, limit)
+        if "error" in res:
+            raise HTTPException(status_code=400, detail=res["error"])
+        return res
 
     @app.get("/")
     def dashboard():

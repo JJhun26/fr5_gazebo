@@ -6,91 +6,300 @@
 <title>물류 로봇 데모 · MES</title>
 <style>
   :root {
-    --bg: #f6f7f9; --card: #fff; --ink: #16202a; --muted: #5b6b7a;
-    --line: #e2e6ea; --accent: #0f6fbf; --good: #1a8f5a; --bad: #c0392b;
+    --bg:#f6f7f9; --card:#fff; --ink:#16202a; --muted:#5b6b7a; --line:#e2e6ea;
+    --accent:#0f6fbf; --good:#1a8f5a; --bad:#c0392b; --warn:#b26a00;
+    --code:#eef1f4; --sel:#e6f0fa;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg:#12171c; --card:#1a2027; --ink:#e6ebf0; --muted:#93a2b1;
-            --line:#2a333c; --accent:#4aa3e8; --good:#37c07f; --bad:#e8705f; }
+            --line:#2a333c; --accent:#4aa3e8; --good:#37c07f; --bad:#e8705f;
+            --warn:#e0a33c; --code:#131920; --sel:#22303d; }
   }
-  * { box-sizing: border-box; }
+  * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--ink);
-         font:14px/1.55 -apple-system, "Noto Sans KR", system-ui, sans-serif; }
-  header { padding:20px 24px 12px; border-bottom:1px solid var(--line); }
-  h1 { margin:0; font-size:20px; letter-spacing:-.01em; }
-  .sub { color:var(--muted); font-size:13px; margin-top:4px; }
-  main { padding:20px 24px 48px; max-width:1100px; }
-  .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:12px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
-  .k { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
-  .v { font-size:26px; font-weight:650; margin-top:4px; font-variant-numeric:tabular-nums; }
-  h2 { font-size:15px; margin:28px 0 10px; }
-  table { width:100%; border-collapse:collapse; background:var(--card);
-          border:1px solid var(--line); border-radius:10px; overflow:hidden; }
-  th, td { padding:9px 12px; text-align:left; border-bottom:1px solid var(--line); font-size:13px; }
+         font:14px/1.55 -apple-system,"Noto Sans KR",system-ui,sans-serif; }
+  code, .mono, td.num, pre, input[type=text] {
+    font-family: ui-monospace,"SF Mono",Menlo,"D2Coding",Consolas,monospace; }
+
+  header { padding:16px 22px 12px; border-bottom:1px solid var(--line);
+           background:var(--card); }
+  h1 { margin:0; font-size:18px; letter-spacing:-.01em; }
+  .sub { color:var(--muted); font-size:12.5px; margin-top:3px; }
+  .dot { display:inline-block; width:7px; height:7px; border-radius:50%;
+         background:var(--good); margin-right:5px; vertical-align:1px; }
+  .dot.off { background:var(--bad); }
+
+  .tabs { display:flex; gap:2px; margin-top:12px; }
+  .tabs button { border:1px solid var(--line); border-bottom:0; background:transparent;
+      color:var(--muted); padding:7px 14px; border-radius:8px 8px 0 0; cursor:pointer;
+      font-size:13px; font-weight:600; font-family:inherit; }
+  .tabs button[aria-selected=true] { background:var(--bg); color:var(--ink);
+      box-shadow:inset 0 2px 0 var(--accent); }
+
+  main { padding:18px 22px 48px; }
+  .row { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px;
+          padding:12px 14px; }
+  .k { color:var(--muted); font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; }
+  .v { font-size:24px; font-weight:650; margin-top:2px; font-variant-numeric:tabular-nums; }
+  h2 { font-size:14px; margin:24px 0 8px; }
+  h2 .hint { font-weight:400; color:var(--muted); font-size:12px; margin-left:8px; }
+
+  .split { display:grid; grid-template-columns:240px minmax(0,1fr); gap:16px; }
+  @media (max-width:860px) { .split { grid-template-columns:1fr; } }
+
+  .tablelist { background:var(--card); border:1px solid var(--line); border-radius:10px;
+               overflow:hidden; }
+  .tablelist button { display:block; width:100%; text-align:left; border:0;
+      border-bottom:1px solid var(--line); background:transparent; color:var(--ink);
+      padding:10px 12px; cursor:pointer; font:inherit; }
+  .tablelist button:last-child { border-bottom:0; }
+  .tablelist button[aria-current=true] { background:var(--sel); }
+  .tablelist .n { color:var(--muted); font-size:12px; float:right;
+                  font-variant-numeric:tabular-nums; }
+
+  .wrap { overflow-x:auto; background:var(--card); border:1px solid var(--line);
+          border-radius:10px; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { padding:8px 11px; text-align:left; border-bottom:1px solid var(--line);
+           font-size:12.5px; white-space:nowrap; }
   th { background:color-mix(in srgb, var(--card) 88%, var(--ink)); font-weight:600;
-       color:var(--muted); font-size:12px; }
+       color:var(--muted); font-size:11.5px; position:sticky; top:0; }
   tr:last-child td { border-bottom:0; }
-  td.num { font-variant-numeric:tabular-nums; }
+  td.num { font-variant-numeric:tabular-nums; text-align:right; }
+  td.null { color:var(--muted); }
+  .pk { color:var(--accent); font-weight:700; }
+
   .tag { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px;
          font-weight:600; border:1px solid var(--line); }
-  .PLACE  { color:var(--good); border-color:var(--good); }
-  .READ   { color:var(--accent); border-color:var(--accent); }
-  .DEPAL  { color:var(--muted); }
-  .EXCEPTION { color:var(--bad); border-color:var(--bad); }
-  .SWAP   { color:var(--muted); }
-  .wrap { overflow-x:auto; }
-  footer { color:var(--muted); font-size:12px; margin-top:24px; }
+  .PLACE{color:var(--good);border-color:var(--good)} .READ{color:var(--accent);border-color:var(--accent)}
+  .EXCEPTION{color:var(--bad);border-color:var(--bad)} .DEPAL,.SWAP{color:var(--muted)}
+  .h-hazmat,.h-oversize{color:var(--bad);border-color:var(--bad)}
+  .h-fragile{color:var(--warn);border-color:var(--warn)}
+  .h-normal{color:var(--muted)}
+
+  .bar { display:flex; gap:8px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+  input[type=text] { flex:1; min-width:260px; padding:9px 11px; border-radius:8px;
+      border:1px solid var(--line); background:var(--card); color:var(--ink); font-size:13px; }
+  button.go { padding:9px 16px; border-radius:8px; border:1px solid var(--accent);
+      background:var(--accent); color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+  button.pg { padding:6px 12px; border-radius:8px; border:1px solid var(--line);
+      background:var(--card); color:var(--ink); font:inherit; cursor:pointer; }
+  button.pg[disabled] { opacity:.4; cursor:default; }
+  .chip { border:1px solid var(--line); background:var(--card); color:var(--muted);
+      border-radius:999px; padding:4px 11px; font-size:12px; cursor:pointer; font-family:inherit; }
+  .chip:hover { color:var(--ink); border-color:var(--accent); }
+  .err { color:var(--bad); background:color-mix(in srgb, var(--bad) 10%, var(--card));
+      border:1px solid var(--bad); border-radius:8px; padding:9px 12px; font-size:13px; }
+  .meta { color:var(--muted); font-size:12px; }
+  .schema { color:var(--muted); font-size:12px; margin:6px 0 10px; }
+  .schema code { background:var(--code); padding:1px 6px; border-radius:4px; }
+  footer { color:var(--muted); font-size:12px; margin-top:22px; max-width:70ch; }
 </style>
 </head>
 <body>
 <header>
   <h1>물류 로봇 데모 · MES</h1>
-  <div class="sub">셀 <b>cell-01</b> · FR5 · 2초마다 갱신</div>
+  <div class="sub"><span class="dot" id="live"></span>셀 <b>cell-01</b> · FR5 ·
+    SQLite <span class="mono" id="dbname">mes.sqlite3</span></div>
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true"  data-tab="ops">운전 현황</button>
+    <button role="tab" aria-selected="false" data-tab="db">데이터베이스</button>
+    <button role="tab" aria-selected="false" data-tab="sql">질의</button>
+  </div>
 </header>
 <main>
+
+<section id="tab-ops">
   <div class="row" id="stats"></div>
-  <h2>처리 이력</h2>
+  <h2>처리 이력 <span class="hint">events 테이블. 최근 것이 위</span></h2>
   <div class="wrap"><table>
-    <thead><tr><th>시각</th><th>종류</th><th>코드</th><th>팔레트</th><th>층</th><th>자리</th><th>사진</th></tr></thead>
+    <thead><tr><th>시각</th><th>종류</th><th>코드</th><th>팔레트</th><th>층</th>
+      <th>자리</th><th>사진</th><th>비고</th></tr></thead>
     <tbody id="events"></tbody>
   </table></div>
-  <footer>기획서 5.5의 events 테이블을 그대로 보여 준다. event_id가 멱등키라
-  통신이 끊겼다 재전송된 건도 한 번만 남는다.</footer>
+</section>
+
+<section id="tab-db" hidden>
+  <div class="split">
+    <div>
+      <h2 style="margin-top:0">테이블</h2>
+      <div class="tablelist" id="tablelist"></div>
+      <div class="schema" id="schema"></div>
+    </div>
+    <div>
+      <h2 style="margin-top:0" id="tabletitle">—</h2>
+      <div class="wrap"><table>
+        <thead id="thead"></thead><tbody id="tbody"></tbody>
+      </table></div>
+      <div class="bar">
+        <button class="pg" id="prev">← 이전</button>
+        <button class="pg" id="next">다음 →</button>
+        <span class="meta" id="pagemeta"></span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="tab-sql" hidden>
+  <h2 style="margin-top:0">읽기 전용 질의
+    <span class="hint">SELECT / WITH / PRAGMA만. 문장 하나.</span></h2>
+  <div class="bar">
+    <input type="text" id="sql" spellcheck="false"
+           value="SELECT code, name, kind, weight_kg, handling FROM items ORDER BY code">
+    <button class="go" id="run">실행</button>
+  </div>
+  <div class="bar" id="examples"></div>
+  <div id="sqlerr"></div>
+  <div class="wrap" id="sqlwrap"><table>
+    <thead id="qhead"></thead><tbody id="qbody"></tbody>
+  </table></div>
+  <div class="meta" id="qmeta"></div>
+  <footer>쓰기는 열려 있지 않다. 문장을 SELECT/WITH/PRAGMA 하나로 제한하고,
+  그것을 통과해도 읽기 전용으로 다시 연 커넥션에서 실행한다. 걸러 내기만
+  믿지 않으려는 것이다.</footer>
+</section>
+
 </main>
 <script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const fmt = (t) => new Date(t * 1000).toLocaleTimeString('ko-KR', {hour12:false});
-const cell = (k, v) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+const card = (k, v) => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div></div>`;
 
+// ---------------------------------------------------------------- 탭
+let tab = 'ops';
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll('.tabs button').forEach(x =>
+    x.setAttribute('aria-selected', String(x === b)));
+  ['ops','db','sql'].forEach(t => $('tab-' + t).hidden = (t !== tab));
+  if (tab === 'db' && !tables.length) loadTables();
+});
+
+// ---------------------------------------------------------------- 운전 현황
 async function tick() {
   try {
     const [s, e] = await Promise.all([
       fetch('/stats').then(r => r.json()),
-      fetch('/events').then(r => r.json()),
+      fetch('/events?limit=100').then(r => r.json()),
     ]);
-    document.getElementById('stats').innerHTML =
-      cell('적재 건수', s.placed ?? 0) +
-      cell('예외', s.exceptions ?? 0) +
-      cell('평균 사이클', (s.cycle_sec ?? 0).toFixed(1) + ' s') +
-      cell('판독률', ((s.read_rate ?? 0) * 100).toFixed(1) + ' %') +
-      cell('가동 시간', Math.round(s.elapsed_sec ?? 0) + ' s');
+    $('live').classList.remove('off');
+    $('stats').innerHTML =
+      card('적재 건수', s.placed ?? 0) +
+      card('예외', s.exceptions ?? 0) +
+      card('평균 사이클', (s.cycle_sec ?? 0).toFixed(1) + ' s') +
+      card('판독률', ((s.read_rate ?? 0) * 100).toFixed(1) + ' %') +
+      card('가동 시간', Math.round(s.elapsed_sec ?? 0) + ' s');
 
-    document.getElementById('events').innerHTML = e.map(r => `
-      <tr>
+    $('events').innerHTML = e.map(r => `<tr>
         <td class="num">${fmt(r.ts)}</td>
-        <td><span class="tag ${r.type}">${r.type}</span></td>
-        <td>${r.code || '—'}</td>
+        <td><span class="tag ${esc(r.type)}">${esc(r.type)}</span></td>
+        <td class="mono">${esc(r.code || '—')}</td>
         <td class="num">${r.pallet ?? '—'}</td>
         <td class="num">${r.layer ?? '—'}</td>
         <td class="num">${r.idx ?? '—'}</td>
-        <td>${r.image_path ? r.image_path.split('/').pop() : '—'}</td>
-      </tr>`).join('');
+        <td class="mono">${r.image_path ? esc(r.image_path.split('/').pop()) : '—'}</td>
+        <td class="meta">${esc(r.extra || '')}</td>
+      </tr>`).join('') || '<tr><td colspan="8" class="meta">아직 없다</td></tr>';
   } catch (err) {
-    document.getElementById('stats').innerHTML = cell('상태', '서버 응답 없음');
+    $('live').classList.add('off');
+    $('stats').innerHTML = card('상태', '서버 응답 없음');
   }
 }
+
+// ---------------------------------------------------------------- 데이터베이스
+let tables = [], cur = null, offset = 0;
+const PAGE = 50;
+
+async function loadTables() {
+  tables = await fetch('/tables').then(r => r.json());
+  $('tablelist').innerHTML = tables.map(t =>
+    `<button data-t="${esc(t.name)}" aria-current="${t.name === cur}">
+       ${esc(t.name)}<span class="n">${t.rows}</span></button>`).join('');
+  $('tablelist').querySelectorAll('button').forEach(b =>
+    b.onclick = () => { cur = b.dataset.t; offset = 0; loadRows(); });
+  if (!cur && tables.length) { cur = tables[0].name; loadRows(); }
+}
+
+function renderSchema(name) {
+  const t = tables.find(x => x.name === name);
+  if (!t) { $('schema').innerHTML = ''; return; }
+  $('schema').innerHTML = '<b>스키마</b><br>' + t.columns.map(c =>
+    `<code class="${c.pk ? 'pk' : ''}">${esc(c.name)}</code> ${esc(c.type || '')}` +
+    (c.pk ? ' <span class="pk">PK</span>' : '') +
+    (c.notnull ? ' NOT NULL' : '')).join('<br>');
+}
+
+async function loadRows() {
+  if (!cur) return;
+  $('tablelist').querySelectorAll('button').forEach(b =>
+    b.setAttribute('aria-current', String(b.dataset.t === cur)));
+  renderSchema(cur);
+  const d = await fetch(`/table/${encodeURIComponent(cur)}?limit=${PAGE}&offset=${offset}`)
+                  .then(r => r.json());
+  $('tabletitle').textContent = `${d.table} · ${d.total}행`;
+  $('thead').innerHTML = '<tr>' + d.columns.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>';
+  $('tbody').innerHTML = d.rows.map(r => '<tr>' + d.columns.map(c => {
+      const v = r[c];
+      if (v === null || v === undefined) return '<td class="null">NULL</td>';
+      if (typeof v === 'number') return `<td class="num">${v}</td>`;
+      return `<td class="mono">${esc(v)}</td>`;
+    }).join('') + '</tr>').join('') || '<tr><td class="meta">빈 테이블</td></tr>';
+  $('pagemeta').textContent =
+    `${d.total ? offset + 1 : 0}–${Math.min(offset + PAGE, d.total)} / ${d.total}`;
+  $('prev').disabled = offset === 0;
+  $('next').disabled = offset + PAGE >= d.total;
+}
+$('prev').onclick = () => { offset = Math.max(0, offset - PAGE); loadRows(); };
+$('next').onclick = () => { offset += PAGE; loadRows(); };
+
+// ---------------------------------------------------------------- 질의
+const EXAMPLES = [
+  ["예외 대상 품목", "SELECT code, name, kind, handling FROM items WHERE handling != 'normal'"],
+  ["규격별 개수", "SELECT kind, COUNT(*) n, ROUND(AVG(weight_kg),2) avg_kg FROM items GROUP BY kind"],
+  ["코드별 처리 흐름", "SELECT code, type, datetime(ts,'unixepoch','localtime') t FROM events WHERE code!='' ORDER BY id DESC"],
+  ["적재된 것만", "SELECT e.code, i.name, e.pallet, e.layer, e.idx FROM events e JOIN items i ON i.code=e.code WHERE e.type='PLACE' ORDER BY e.id DESC"],
+  ["예외 사유", "SELECT extra 사유, COUNT(*) n FROM events WHERE type='EXCEPTION' GROUP BY extra"],
+];
+$('examples').innerHTML = EXAMPLES.map((e, i) =>
+  `<button class="chip" data-i="${i}">${esc(e[0])}</button>`).join('');
+$('examples').querySelectorAll('.chip').forEach(b => b.onclick = () => {
+  $('sql').value = EXAMPLES[b.dataset.i][1]; runQuery();
+});
+
+async function runQuery() {
+  const sql = $('sql').value;
+  $('sqlerr').innerHTML = '';
+  const res = await fetch('/query?sql=' + encodeURIComponent(sql) + '&limit=200');
+  const d = await res.json();
+  if (!res.ok || d.error) {
+    $('sqlerr').innerHTML = `<div class="err">${esc(d.error || d.detail || '질의 실패')}</div>`;
+    $('qhead').innerHTML = ''; $('qbody').innerHTML = ''; $('qmeta').textContent = '';
+    return;
+  }
+  $('qhead').innerHTML = '<tr>' + d.columns.map(c => `<th>${esc(c)}</th>`).join('') + '</tr>';
+  $('qbody').innerHTML = d.rows.map(r => '<tr>' + d.columns.map(c => {
+      const v = r[c];
+      if (v === null || v === undefined) return '<td class="null">NULL</td>';
+      if (typeof v === 'number') return `<td class="num">${v}</td>`;
+      return `<td class="mono">${esc(v)}</td>`;
+    }).join('') + '</tr>').join('') || '<tr><td class="meta">결과 없음</td></tr>';
+  $('qmeta').textContent = `${d.rows.length}행 · ${d.elapsed_ms} ms` +
+    (d.truncated ? ' · 200행에서 잘랐다' : '');
+}
+$('run').onclick = runQuery;
+$('sql').addEventListener('keydown', e => { if (e.key === 'Enter') runQuery(); });
+
+// DB 파일 이름은 서버에게 묻는다. --db로 바꿔 띄울 수 있으므로
+// 화면에 박아 두면 언젠가 거짓말이 된다.
+fetch('/health').then(r => r.json())
+  .then(h => { if (h.db) $('dbname').textContent = h.db.split('/').pop(); })
+  .catch(() => {});
+
 tick();
-setInterval(tick, 2000);
+setInterval(() => { tick(); if (tab === 'db') loadRows(); }, 2000);
 </script>
 </body>
 </html>
