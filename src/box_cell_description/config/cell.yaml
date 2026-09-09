@@ -150,8 +150,9 @@ read_station:
 pallet:
   size: 0.300                    # 300 각
   thickness: 0.030               # 30
-  paint_zone: 0.200              # 색칠 구역 200 각. 적재 블록은 이 안에 들어간다.
-  # 색칠 구역 200 각 안에 2열 2행 2층 = 8개
+  paint_zone: 0.200              # 색칠 구역 200 각. 표시용이다.
+  # 규격이 여러 가지라 고정 격자로는 못 쌓는다. pallet_manager가 층마다
+  # 빈 자리를 찾아 넣는다(first-fit). 아래 값은 그 탐색의 여백과 눈금이다.
   slots:
     cols: 2
     rows: 2

@@ -94,43 +94,65 @@
   <xacro:cell_box name="robot_mount_plate" sx="${op['size']}" sy="${op['size']}" sz="0.012"
       x="${op['center'][0]}" y="${op['center'][1]}" z="-0.006" rgba="0.55 0.57 0.60 1"/>
 
-  <!-- ================= 다리, 선반, 캐스터 ================= -->
-  <xacro:property name="leg"   value="${tbl['leg']['section']}"/>
+  <!-- ================= 하부 캐비닛 =================
+       실물 작업대는 다리 네 개에 선반이 아니라, 상판 아래가 통째로 도어
+       두 짝짜리 수납장이다(현장 사진). 다리 사이가 뚫려 있으면 로봇
+       배선과 컨트롤러가 갈 곳이 없다.
+
+       충돌체로는 상판 아래라 로봇이 닿을 일이 없지만, 화면에서 셀이
+       공중에 떠 보이지 않으려면 있어야 한다. -->
   <xacro:property name="inset" value="${tbl['leg']['inset']}"/>
-  <xacro:property name="cr"    value="${tbl['caster_radius']}"/>
-  <xacro:property name="leg_top" value="${-th}"/>
-  <xacro:property name="leg_bot" value="${-H + 2*cr}"/>
-  <xacro:property name="leg_len" value="${leg_top - leg_bot}"/>
+  <xacro:property name="plinth" value="0.060"/>          <!-- 걸레받이 높이 -->
+  <xacro:property name="cab_x0" value="${inset}"/>
+  <xacro:property name="cab_x1" value="${tbl['size_x'] - inset}"/>
+  <xacro:property name="cab_y0" value="${inset}"/>
+  <xacro:property name="cab_y1" value="${tbl['size_y'] - inset}"/>
+  <xacro:property name="cab_top" value="${-th}"/>
+  <xacro:property name="cab_bot" value="${-H + plinth}"/>
 
-  <xacro:macro name="table_leg" params="id x y">
-    <xacro:cell_box name="table_leg_${id}" sx="${leg}" sy="${leg}" sz="${leg_len}"
-        x="${x}" y="${y}" z="${(leg_top+leg_bot)/2}" rgba="0.35 0.37 0.40 1"/>
-    <link name="caster_${id}">
-      <visual>
-        <geometry><sphere radius="${cr}"/></geometry>
-        <material name="caster_mat"><color rgba="0.12 0.12 0.14 1"/></material>
-      </visual>
-      <collision><geometry><sphere radius="${cr}"/></geometry></collision>
-      <inertial><mass value="0.4"/><inertia ixx="4e-4" iyy="4e-4" izz="4e-4" ixy="0" ixz="0" iyz="0"/></inertial>
-    </link>
-    <joint name="caster_${id}_fix" type="fixed">
-      <parent link="cell_base"/>
-      <child link="caster_${id}"/>
-      <origin xyz="${x} ${y} ${-H + cr}" rpy="0 0 0"/>
-    </joint>
+  <!-- 몸통 -->
+  <xacro:cell_box name="cabinet_body" sx="${cab_x1-cab_x0}" sy="${cab_y1-cab_y0}"
+      sz="${cab_top - cab_bot}"
+      x="${(cab_x0+cab_x1)/2}" y="${(cab_y0+cab_y1)/2}" z="${(cab_top+cab_bot)/2}"
+      rgba="0.55 0.57 0.60 1"/>
+
+  <!-- 걸레받이. 몸통보다 조금 들여 넣는다. -->
+  <xacro:cell_box name="cabinet_plinth" sx="${cab_x1-cab_x0-0.060}" sy="${cab_y1-cab_y0-0.060}"
+      sz="${plinth}"
+      x="${(cab_x0+cab_x1)/2}" y="${(cab_y0+cab_y1)/2}" z="${-H + plinth/2}"
+      rgba="0.30 0.31 0.33 1"/>
+
+  <!-- 앞면 도어 두 짝. 여닫지 않는다. 생김새만 낸다. -->
+  <xacro:macro name="cabinet_door" params="id x0 x1">
+    <xacro:cell_box name="cabinet_door_${id}" sx="${x1-x0-0.010}" sy="0.014"
+        sz="${cab_top - cab_bot - 0.020}"
+        x="${(x0+x1)/2}" y="${cab_y0 - 0.007}" z="${(cab_top+cab_bot)/2}"
+        rgba="0.68 0.70 0.72 1" collide="false"/>
+    <!-- 세로 손잡이 -->
+    <xacro:cell_box name="cabinet_handle_${id}" sx="0.016" sy="0.016" sz="0.180"
+        x="${x1 - 0.055 if id == 'l' else x0 + 0.055}" y="${cab_y0 - 0.020}"
+        z="${(cab_top+cab_bot)/2 + 0.060}"
+        rgba="0.80 0.82 0.85 1" collide="false"/>
   </xacro:macro>
+  <xacro:cabinet_door id="l" x0="${cab_x0}" x1="${(cab_x0+cab_x1)/2}"/>
+  <xacro:cabinet_door id="r" x0="${(cab_x0+cab_x1)/2}" x1="${cab_x1}"/>
 
-  <xacro:property name="lx0" value="${inset + leg/2}"/>
-  <xacro:property name="lx1" value="${tbl['size_x'] - inset - leg/2}"/>
-  <xacro:property name="ly0" value="${inset + leg/2}"/>
-  <xacro:property name="ly1" value="${tbl['size_y'] - inset - leg/2}"/>
-  <xacro:table_leg id="fl" x="${lx0}" y="${ly0}"/>
-  <xacro:table_leg id="fr" x="${lx1}" y="${ly0}"/>
-  <xacro:table_leg id="bl" x="${lx0}" y="${ly1}"/>
-  <xacro:table_leg id="br" x="${lx1}" y="${ly1}"/>
-
-  <xacro:cell_box name="table_shelf" sx="${lx1-lx0}" sy="${ly1-ly0}" sz="0.018"
-      x="${(lx0+lx1)/2}" y="${(ly0+ly1)/2}" z="${-H + tbl['shelf_height']}" rgba="0.90 0.91 0.92 1"/>
+  <!-- 비상정지 버튼. 상판 앞쪽, 사람 손이 먼저 가는 자리다. -->
+  <xacro:cell_box name="estop_base" sx="0.075" sy="0.075" sz="0.055"
+      x="0.640" y="0.115" z="0.0275" rgba="0.95 0.78 0.05 1"/>
+  <link name="estop_button">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.024" length="0.018"/></geometry>
+      <material name="estop_mat"><color rgba="0.75 0.10 0.10 1"/></material>
+    </visual>
+    <inertial><mass value="0.02"/><inertia ixx="1e-5" iyy="1e-5" izz="1e-5"
+      ixy="0" ixz="0" iyz="0"/></inertial>
+  </link>
+  <joint name="estop_button_fix" type="fixed">
+    <parent link="cell_base"/><child link="estop_button"/>
+    <origin xyz="0.640 0.115 0.064" rpy="0 0 0"/>
+  </joint>
 
   <!-- ================= 컨베이어 =================
        유효 800 x 폭 150. 벨트 상면이 상판 위 180. 기어박스 200 각은 상판 바깥. -->
@@ -202,13 +224,78 @@
       x="${conv['stop_sensor_x']}" y="${belt['center_y'] - bw/2 - 0.015}" z="${bz + 0.020}"
       rgba="0.85 0.20 0.20 1" collide="false"/>
 
-  <!-- ================= 팔레트 두 장 ================= -->
+  <!-- ================= 팔레트 두 장 =================
+       실물 팔레트 모양으로 만든다. 통짜 판이 아니라 상부 데크 슬랫,
+       블록, 하부 러너로 이루어진다(현장 사진의 빨간 플라스틱 팔레트).
+
+       충돌체는 통짜 상자 하나로 둔다. 슬랫 하나하나를 충돌체로 넣으면
+       MoveIt의 충돌 검사가 그만큼 무거워지는데, 로봇이 닿는 것은 데크
+       상면뿐이라 얻는 게 없다. 그래서 겉모습은 슬랫으로, 충돌은 상자로
+       나눠 만든다. -->
+  <xacro:property name="pal_sz" value="${pal['size']}"/>
+  <xacro:property name="pal_th" value="${pal['thickness']}"/>
+  <xacro:property name="deck_th" value="${pal_th * 0.34}"/>   <!-- 상부 데크 -->
+  <xacro:property name="blk_th"  value="${pal_th * 0.40}"/>   <!-- 블록 -->
+  <xacro:property name="run_th"  value="${pal_th - deck_th - blk_th}"/>
+  <xacro:property name="slat_w"  value="${pal_sz * 0.15}"/>
+  <xacro:property name="pal_rgba" value="0.78 0.14 0.12 1"/>
+
+  <xacro:macro name="pallet_slat" params="id cx cy off">
+    <xacro:cell_box name="pallet_${id}_deck_${off}" sx="${pal_sz}" sy="${slat_w}" sz="${deck_th}"
+        x="${cx}" y="${cy + off * pal_sz * 0.2125}" z="${pal_th - deck_th/2}"
+        rgba="${pal_rgba}" collide="false"/>
+  </xacro:macro>
+
+  <xacro:macro name="pallet_block" params="id cx cy ox oy">
+    <xacro:cell_box name="pallet_${id}_blk_${ox}_${oy}" sx="${slat_w}" sy="${slat_w}" sz="${blk_th}"
+        x="${cx + ox * pal_sz * 0.36}" y="${cy + oy * pal_sz * 0.36}"
+        z="${run_th + blk_th/2}" rgba="${pal_rgba}" collide="false"/>
+  </xacro:macro>
+
   <xacro:macro name="pallet_unit" params="id cx cy">
-    <xacro:cell_box name="pallet_${id}" sx="${pal['size']}" sy="${pal['size']}" sz="${pal['thickness']}"
-        x="${cx}" y="${cy}" z="${pal['thickness']/2}" rgba="0.76 0.62 0.42 1"/>
+    <!-- 충돌체. 데크 상면까지 통으로 잡는다. -->
+    <link name="pallet_${id}">
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry><box size="${pal_sz} ${pal_sz} ${pal_th}"/></geometry>
+      </collision>
+      <inertial><mass value="6.0"/><inertia ixx="0.05" iyy="0.05" izz="0.09"
+        ixy="0" ixz="0" iyz="0"/></inertial>
+    </link>
+    <joint name="pallet_${id}_fix" type="fixed">
+      <parent link="cell_base"/><child link="pallet_${id}"/>
+      <origin xyz="${cx} ${cy} ${pal_th/2}" rpy="0 0 0"/>
+    </joint>
+
+    <!-- 상부 데크 슬랫 5장 -->
+    <xacro:pallet_slat id="${id}" cx="${cx}" cy="${cy}" off="-2"/>
+    <xacro:pallet_slat id="${id}" cx="${cx}" cy="${cy}" off="-1"/>
+    <xacro:pallet_slat id="${id}" cx="${cx}" cy="${cy}" off="0"/>
+    <xacro:pallet_slat id="${id}" cx="${cx}" cy="${cy}" off="1"/>
+    <xacro:pallet_slat id="${id}" cx="${cx}" cy="${cy}" off="2"/>
+
+    <!-- 블록 9개 -->
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="-1" oy="-1"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="-1" oy="0"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="-1" oy="1"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="0" oy="-1"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="0" oy="0"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="0" oy="1"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="1" oy="-1"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="1" oy="0"/>
+    <xacro:pallet_block id="${id}" cx="${cx}" cy="${cy}" ox="1" oy="1"/>
+
+    <!-- 하부 러너 3개. 지게차 포크가 들어가는 방향을 만든다. -->
+    <xacro:cell_box name="pallet_${id}_run_a" sx="${pal_sz}" sy="${slat_w}" sz="${run_th}"
+        x="${cx}" y="${cy - pal_sz*0.36}" z="${run_th/2}" rgba="${pal_rgba}" collide="false"/>
+    <xacro:cell_box name="pallet_${id}_run_b" sx="${pal_sz}" sy="${slat_w}" sz="${run_th}"
+        x="${cx}" y="${cy}" z="${run_th/2}" rgba="${pal_rgba}" collide="false"/>
+    <xacro:cell_box name="pallet_${id}_run_c" sx="${pal_sz}" sy="${slat_w}" sz="${run_th}"
+        x="${cx}" y="${cy + pal_sz*0.36}" z="${run_th/2}" rgba="${pal_rgba}" collide="false"/>
+
     <!-- 색칠 구역 200 각. 표시일 뿐이라 충돌은 뺀다. -->
     <xacro:cell_box name="pallet_${id}_zone" sx="${pal['paint_zone']}" sy="${pal['paint_zone']}" sz="0.001"
-        x="${cx}" y="${cy}" z="${pal['thickness'] + 0.0005}" rgba="0.30 0.65 0.45 0.55" collide="false"/>
+        x="${cx}" y="${cy}" z="${pal_th + 0.0005}" rgba="0.30 0.65 0.45 0.55" collide="false"/>
   </xacro:macro>
   <xacro:pallet_unit id="1" cx="${pal['units'][0]['center'][0]}" cy="${pal['units'][0]['center'][1]}"/>
   <xacro:pallet_unit id="2" cx="${pal['units'][1]['center'][0]}" cy="${pal['units'][1]['center'][1]}"/>
