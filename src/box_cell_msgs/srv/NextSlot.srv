@@ -1,8 +1,16 @@
-# 다음 적재 자리를 묻는다. 기획서 5.7의 정의 그대로다.
-# pallet_manager가 적재 기록을 갖고 답한다.
-uint8 pallet_id
+# 다음 적재 자리를 묻는다. 기획서 5.7의 정의를 규격 혼재로 넓힌 것이다.
+#
+# 규격이 하나였을 때는 격자가 자리를 정했다(5.3의 공식). 규격이 여러
+# 가지면 그럴 수 없다. 이제 pallet_manager가 층마다 빈 자리를 찾아 준다
+# (first-fit). 그래서 요청에 박스 치수가 들어간다.
+#
+# 치수는 MES에서 온 값이다. 시뮬레이터의 정답지가 아니다.
+uint8      pallet_id
+float64[3] box_size     # 가로, 세로, 높이 (m)
 ---
 bool                success
 geometry_msgs/Pose  place_pose      # TCP가 가야 할 자리. world 기준.
 uint8               layer
-uint8               index
+uint8               index           # 적재 순서. 반출은 이 역순이다.
+float64             yaw             # 박스를 몇 도 돌려 놓을지. 0 또는 pi/2.
+string              reason          # 실패했으면 왜인지

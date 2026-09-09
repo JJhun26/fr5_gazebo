@@ -34,21 +34,6 @@ def default_cell_path() -> Path:
     return Path(get_package_share_directory("box_cell_description")) / "config" / "cell.yaml"
 
 
-@dataclass(frozen=True)
-class Slot:
-    """팔레트 위 한 자리. index가 기획서 5.3의 격자 인덱스다."""
-
-    pallet_id: int
-    index: int
-    col: int
-    row: int
-    layer: int
-    x: float
-    y: float
-    top_z: float        # 이 자리에 박스를 놓았을 때 박스 상면의 world z
-    center_z: float     # 그 박스 무게중심의 world z
-
-
 class CellGeometry:
     """셀 제원 전체. 읽기 전용."""
 
@@ -64,7 +49,13 @@ class CellGeometry:
 
     @property
     def box_size(self) -> tuple[float, float, float]:
-        return tuple(float(v) for v in self.data["box"]["size"])  # type: ignore[return-value]
+        """기본 규격의 치수.
+
+        규격이 여러 가지가 되면서 "그 박스"의 치수는 코드를 알아야 나온다
+        (MES 조회). 이 값은 아직 규격을 모를 때 가정하는 값일 뿐이다.
+        판독 평면 계산이나 화면 표시처럼 틀려도 사이클이 안 죽는 곳에만 쓴다.
+        """
+        return self.default_box_size
 
     @property
     def box_height(self) -> float:
@@ -78,61 +69,52 @@ class CellGeometry:
     def tcp_offset(self) -> float:
         return float(self.data["tool"]["tcp_offset"])
 
-    @property
-    def slots_per_pallet(self) -> int:
-        s = self.data["pallet"]["slots"]
-        return int(s["cols"]) * int(s["rows"]) * int(s["layers"])
+    def pallet_slot_cfg(self) -> dict:
+        """적재 탐색 설정. cell.yaml의 pallet.slots."""
+        return self.data["pallet"]["slots"]
+
+    def sample_placements(self, pallet_id: int, kind: str | None = None,
+                          count: int | None = None) -> list[tuple[float, float, float]]:
+        """이 팔레트에 그 규격을 채웠을 때 나오는 자리들. (x, y, 상면 z) world.
+
+        고정 격자가 없어졌으므로 검증 도구가 "슬롯 8개"를 셀 수 없다.
+        대신 실제 적재에 쓰는 것과 **같은 패커**를 돌려 대표 자리를 얻는다.
+        도구가 다른 계산을 쓰면 통과해도 의미가 없다.
+        """
+        from box_cell_common.pallet_pack import Packer
+
+        cfg = self.pallet_slot_cfg()
+        pk = Packer(
+            size=float(self.data["pallet"]["size"]),
+            margin=float(cfg["margin"]),
+            gap=float(cfg["gap"]),
+            step=float(cfg["step"]),
+            max_layers=int(cfg["layers"]),
+        )
+        size = self.box_size_of(kind) if kind else None
+        sx, sy, sz = size or self.default_box_size
+        px, py = self.pallet_center(pallet_id)
+        base = self.table_top + float(self.data["pallet"]["thickness"])
+        out: list[tuple[float, float, float]] = []
+        limit = count if count is not None else int(self.box_count)
+        for _ in range(limit):
+            pl = pk.find(sx, sy, sz)
+            if pl is None:
+                break
+            pk.add(pl, "")
+            out.append((px + pl.x, py + pl.y, base + pl.z_base + pl.sz))
+        return out
 
     @property
     def pallet_ids(self) -> list[int]:
         return [int(u["id"]) for u in self.data["pallet"]["units"]]
 
-    def to_world(self, x: float, y: float, z_table: float) -> tuple[float, float, float]:
-        """table 좌표를 world로. 차이는 z 하나다."""
-        return (x, y, z_table + self.table_top)
-
-    # ---------------------------------------------------------------- 팔레트
     def pallet_center(self, pallet_id: int) -> tuple[float, float]:
         for u in self.data["pallet"]["units"]:
             if int(u["id"]) == pallet_id:
                 return (float(u["center"][0]), float(u["center"][1]))
         raise KeyError(f"팔레트 {pallet_id}은 cell.yaml에 없다")
 
-    def slot(self, pallet_id: int, index: int) -> Slot:
-        """기획서 5.3의 격자 공식 그대로.
-
-            col   = index % 2          x = Px + (col - 0.5) * 70
-            row   = (index // 2) % 2   y = Py + (row - 0.5) * 70
-            layer = index // 4         z = Pz + 30 + layer * 40 + 40
-
-        마지막 +40이 박스 높이다. 흡착 TCP가 박스 상면을 잡기 때문에
-        여기서 나오는 z가 곧 TCP가 가야 할 높이다.
-        """
-        cfg = self.data["pallet"]["slots"]
-        cols, rows = int(cfg["cols"]), int(cfg["rows"])
-        pitch = float(cfg["pitch"])
-        if not 0 <= index < self.slots_per_pallet:
-            raise IndexError(f"슬롯 인덱스 {index}가 범위를 벗어났다")
-        col = index % cols
-        row = (index // cols) % rows
-        layer = index // (cols * rows)
-        px, py = self.pallet_center(pallet_id)
-        base = float(self.data["pallet"]["thickness"])
-        top_z = self.table_top + base + layer * self.box_height + self.box_height
-        return Slot(
-            pallet_id=pallet_id,
-            index=index,
-            col=col,
-            row=row,
-            layer=layer,
-            x=px + (col - (cols - 1) / 2.0) * pitch,
-            y=py + (row - (rows - 1) / 2.0) * pitch,
-            top_z=top_z,
-            center_z=top_z - self.box_height / 2.0,
-        )
-
-    def all_slots(self, pallet_id: int) -> list[Slot]:
-        return [self.slot(pallet_id, i) for i in range(self.slots_per_pallet)]
 
     @property
     def approach_height(self) -> float:
@@ -170,6 +152,89 @@ class CellGeometry:
     def infeed_x(self) -> float:
         """로봇이 박스를 벨트에 되올려 놓는 자리(유효 구간 안)."""
         return float(self.data["conveyor"]["infeed_x"])
+
+    @property
+    def infeed_x_start(self) -> float:
+        """상류 인피드 구간의 끝. 벨트 유효 구간보다 위쪽(-x)이다."""
+        return float(self.data["conveyor"]["infeed"]["x_start"])
+
+    def feed_spawn_pose(self, height: float | None = None) -> tuple[float, float, float]:
+        """박스가 나타나는 자리. 이미 도는 벨트 위에 떨어뜨린다.
+
+        미리 줄 세워 두지 않는다. gz는 안착한 물체를 재우고, 한 번 잠들면
+        접촉 상대가 나중에 돌기 시작해도 다시 깨어나지 않는다(위로 50 N을
+        걸어도 안 뜬다). 필요한 순간에 도는 벨트 위로 떨어뜨리면 그 문제가
+        생길 틈이 없다.
+
+        높이는 그 박스의 실제 높이여야 한다. 기본 규격 높이로 계산하면
+        떨어지는 거리가 규격마다 달라진다. 실제로 제일 큰 XL(95 mm)은
+        기본값 60 mm 기준으로 놓여 바닥 간격이 2.5 mm밖에 안 됐고, 거의
+        떨어지지 않으니 생기자마자 접촉해 잠들어 벨트가 돌아도 끝까지
+        움직이지 않았다. 로트의 마지막 박스 하나가 통째로 멈춘 원인이다.
+        """
+        inf = self.data["conveyor"]["infeed"]
+        h = float(height) if height else float(self.box_height)
+        return (
+            float(inf["spawn_x"]),
+            self.belt_center_y,
+            self.belt_surface_z + h / 2.0 + float(inf.get("spawn_drop", 0.020)),
+        )
+
+    def on_belt_x_range(self) -> tuple[float, float]:
+        """벨트 위로 볼 x 범위. 상류 인피드 구간까지 포함한다."""
+        return (self.infeed_x_start, float(self.data["conveyor"]["belt"]["x_end"]))
+
+    # ------------------------------------------------------------ 박스 규격
+    def box_kinds(self) -> dict:
+        """규격 이름 -> {size, mass}. cell.yaml의 box.kinds."""
+        return self.data["box"].get("kinds", {})
+
+    def box_size_of(self, kind: str) -> tuple[float, float, float] | None:
+        """규격 이름의 실제 치수. 모르는 이름이면 None.
+
+        치수는 여기에만 있고 MES에는 규격 이름만 있다. 두 곳에 mm를 적으면
+        반드시 어긋나기 때문이다. 실물에서도 WMS는 "규격 M"이라고 말하지
+        "130x100x60"이라고 말하지 않는다.
+        """
+        k = self.box_kinds().get(kind)
+        if not k:
+            return None
+        s = k["size"]
+        return (float(s[0]), float(s[1]), float(s[2]))
+
+    @property
+    def default_box_size(self) -> tuple[float, float, float]:
+        """규격을 모를 때 가정하는 치수. 판독 평면 계산에만 쓴다."""
+        size = self.box_size_of(str(self.data["box"].get("default_kind", "M")))
+        return size or (0.100, 0.085, 0.045)
+
+    @property
+    def qr_side(self) -> float:
+        """라벨에 인쇄되는 QR 한 변(m). 여백은 뺀 본체만이다.
+
+        송장이 세로로 긴 직사각이라 QR 크기는 세로가 정한다.
+          높이 - 여백 x2 - 바코드 띠 - 코드 문자열 띠
+        tools/make_labels.py가 이 식으로 그리고, pose_resolver가 이 값과
+        실측 한 변을 견줘 신뢰도를 낸다. 두 곳에 따로 적으면 반드시
+        어긋나므로 여기 한 곳에 둔다. 실제로 라벨을 정사각에서 직사각으로
+        바꿀 때 pose_resolver만 옛 키(label.size)를 보다가 죽었다.
+        """
+        lab = self.data["box"]["label"]
+        return (
+            float(lab["height"])
+            - 2 * float(lab.get("quiet", 0.009))
+            - float(lab.get("barcode_strip", 0.009))
+            - float(lab.get("text_strip", 0.0035))
+        )
+
+    def read_top_z_for(self, height: float | None = None) -> float:
+        """그 높이의 박스가 판독 자리에 섰을 때 상면의 world z.
+
+        규격이 여러 가지라 판독 평면이 하나가 아니다(기획서 5.4의 전제가
+        깨진 자리). 코드를 읽고 MES에서 규격을 받은 뒤 이 값을 다시 낸다.
+        """
+        h = float(height) if height else float(self.default_box_size[2])
+        return self.belt_surface_z + h
 
     def read_station_xy(self) -> tuple[float, float]:
         c = self.data["read_station"]["center"]

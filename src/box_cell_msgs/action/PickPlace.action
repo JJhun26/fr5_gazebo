@@ -12,6 +12,10 @@ geometry_msgs/Pose  pick_pose
 geometry_msgs/Pose  place_pose
 float64             approach_height     # 목표 상면 위 접근 높이. 기본 0.06.
 string              pick_object         # 파지 대상 이름. Planning Scene 부착에 쓴다.
+# 박스 치수. **MES에서 온 값이다.** 시뮬레이터의 정답지가 아니다.
+# 규격이 여러 가지가 되면서 Planning Scene에 붙일 상자의 크기를 상위 로직이
+# 알려 줘야 한다. 비어 있으면(길이 0) 기본 규격으로 가정한다.
+float64[3]          box_size
 bool                return_home         # 마지막에 대기 자세로 돌아갈 것인가
 ---
 bool    success

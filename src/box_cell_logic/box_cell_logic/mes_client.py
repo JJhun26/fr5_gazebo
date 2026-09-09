@@ -25,6 +25,7 @@ import urllib.request
 from pathlib import Path
 
 import rclpy
+from box_cell_common.cell_geometry import CellGeometry
 from box_cell_msgs.srv import ItemQuery
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
@@ -42,6 +43,8 @@ class MesClient(Node):
 
         self.base = str(self.get_parameter("base_url").value).rstrip("/")
         self.cell_id = str(self.get_parameter("cell_id").value)
+        # 규격 이름을 실제 치수로 바꿔 주기 위해 필요하다.
+        self.cell = CellGeometry()
         self.queue_file = Path(str(self.get_parameter("queue_file").value))
         self.queue_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -169,6 +172,19 @@ class MesClient(Node):
         res.name = data.get("name", "")
         res.category = data.get("category", "")
         res.note = data.get("note", "")
+
+        # 박스 정보. MES가 치수의 유일한 원본이다.
+        #
+        # 규격 이름(S/M/L/XL)만 서버에 있고 실제 치수는 cell.yaml에 있다.
+        # 서버에 mm를 넣지 않는 이유는 하나다. 치수를 두 곳에 적으면 반드시
+        # 어긋난다. 규격 이름이 계약이고, 그 이름이 몇 mm인지는 셀이 안다.
+        # 실물에서도 WMS는 "규격 M"이라고 말하지 "130x100x60"이라고 말하지 않는다.
+        kind = data.get("kind", "") or ""
+        res.kind = kind
+        res.weight_kg = float(data.get("weight_kg", 0.0) or 0.0)
+        res.handling = data.get("handling", "normal") or "normal"
+        size = self.cell.box_size_of(kind)
+        res.box_size = [float(v) for v in size] if size else []
         return res
 
 

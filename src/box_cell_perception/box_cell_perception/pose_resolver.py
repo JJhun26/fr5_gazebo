@@ -33,7 +33,10 @@ import rclpy
 import yaml
 from box_cell_common.cell_geometry import CellGeometry, yaw_normalize_square
 from box_cell_msgs.msg import LabelCorners, LabelDetection
+from box_cell_msgs.srv import ItemQuery
+from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo
@@ -68,15 +71,31 @@ class PoseResolver(Node):
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        plane = float(self.get_parameter("plane_z").value)
-        self.plane_z = plane if plane > 0 else self.cell.read_top_z
+        # 판독 평면. 규격이 여러 가지라 하나로 못 정한다.
+        #
+        # 기획서 5.4는 "박스 높이가 40으로 동일해 상면이 항상 같은 평면"이라
+        # 호모그래피 한 장으로 끝냈다. 규격이 S/M/L/XL로 나뉘면 그 전제가
+        # 깨진다. 그래도 깊이 카메라는 여전히 필요 없다. 코드를 먼저 읽고
+        # MES에 그 규격의 높이를 물어, 그 높이의 평면으로 투영하면 된다.
+        # 호모그래피가 규격 수만큼 있는 셈이다.
+        #
+        # plane_z 파라미터를 주면 그 값으로 못박는다. 캘리브레이션 검증용이다.
+        self.plane_fixed = float(self.get_parameter("plane_z").value)
+        self.plane_z = self.plane_fixed if self.plane_fixed > 0 else self.cell.read_top_z
+        self.height_cache: dict[str, float] = {}
+        # 콜백 안에서 서비스를 동기로 부른다. 같은 그룹에 두면 응답을
+        # 처리할 스레드가 없어 교착된다. Reentrant 그룹 + 다중 스레드 실행기가
+        # 짝이다(task_manager와 같은 방식).
+        self.cb = ReentrantCallbackGroup()
+        self.mes_item = self.create_client(ItemQuery, "/mes/item", callback_group=self.cb)
 
         sensor_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.create_subscription(
             CameraInfo, f"/{self.camera}/color/camera_info", self._on_info, sensor_qos
         )
         self.create_subscription(
-            LabelCorners, f"/perception/{self.camera}/corners", self._on_corners, 10
+            LabelCorners, f"/perception/{self.camera}/corners", self._on_corners, 10,
+            callback_group=self.cb,
         )
         self.pub = self.create_publisher(LabelDetection, "/perception/label", 10)
 
@@ -158,6 +177,42 @@ class PoseResolver(Node):
         )
         return h
 
+    def _plane_for(self, code: str) -> float:
+        """이 코드의 박스 상면 높이. MES에 묻는다.
+
+        한 번 물은 코드는 기억한다. 같은 박스를 세 번 판독할 때마다 서비스를
+        부를 이유가 없고, MES가 잠깐 죽어도 이미 아는 코드는 계속 돈다.
+
+        모르면 기본 규격으로 가정한다. 틀린 평면으로 투영하면 위치가 밀리는데,
+        그 상태로 집으러 가지는 않는다. task_manager가 MES 조회 실패를
+        예외 처리로 받기 때문이다. 여기서는 계속 답을 내는 쪽이 낫다.
+        """
+        if code in self.height_cache:
+            return self.height_cache[code]
+        h = None
+        if self.mes_item.service_is_ready():
+            req = ItemQuery.Request()
+            req.code = code
+            res = self.mes_item.call(req)
+            if res is not None and res.found and len(res.box_size) == 3:
+                h = float(res.box_size[2])
+        if h is None or h <= 0.0:
+            # 기본값은 기억하지 않는다. MES가 아직 안 떴을 뿐인데 그 답을
+            # 캐시에 넣으면 서버가 살아난 뒤에도 영영 틀린 평면으로 투영한다.
+            # 실제로 첫 판독이 MES 기동 전에 걸려 그렇게 굳었다.
+            h = float(self.cell.default_box_size[2])
+            self.get_logger().warn(
+                f"{code}의 규격을 MES에서 못 받았다. 기본 규격 높이 {h*1000:.0f} mm로 본다.",
+                throttle_duration_sec=10.0,
+            )
+            return self.cell.read_top_z_for(h)
+        z = self.cell.read_top_z_for(h)
+        self.height_cache[code] = z
+        self.get_logger().info(
+            f"{code} 판독 평면 z={z:.3f} m (박스 높이 {h*1000:.0f} mm)"
+        )
+        return z
+
     def _project(self, u: float, v: float) -> tuple[float, float] | None:
         if self.H is None:
             return None
@@ -179,6 +234,10 @@ class PoseResolver(Node):
             out.ok = False
             self.pub.publish(out)
             return
+
+        # 이 코드의 박스가 몇 mm짜리인지 MES에 묻고, 그 높이의 평면을 쓴다.
+        if self.plane_fixed <= 0:
+            self.plane_z = self._plane_for(msg.code)
 
         if str(self.get_parameter("source").value) == "computed":
             self.H = self._compute_homography()
@@ -220,12 +279,7 @@ class PoseResolver(Node):
         # 비교 대상은 라벨 전체가 아니라 QR 본체다. label_reader가 돌려주는
         # 네 점은 QR의 모서리이고, QR은 라벨에서 사방 여백과 문자열 인쇄 폭을
         # 뺀 만큼이다. 라벨 크기와 견주면 언제나 작게 나와 신뢰도가 깎인다.
-        lab = self.cell.data["box"]["label"]
-        expected = (
-            float(lab["size"])
-            - 2 * float(lab.get("quiet", 0.0025))
-            - float(lab.get("text_strip", 0.004))
-        )
+        expected = self.cell.qr_side
         sides = [
             float(np.linalg.norm(world_arr[(i + 1) % 4] - world_arr[i])) for i in range(4)
         ]
@@ -248,8 +302,10 @@ class PoseResolver(Node):
 def main() -> None:
     rclpy.init()
     node = PoseResolver()
+    executor = MultiThreadedExecutor(num_threads=2)
+    executor.add_node(node)
     try:
-        rclpy.spin(node)
+        executor.spin()
     except KeyboardInterrupt:
         pass
     finally:
