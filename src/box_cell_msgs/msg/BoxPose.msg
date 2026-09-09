@@ -10,3 +10,4 @@ int8                    pallet      # 0 = 컨베이어, 1/2 = 팔레트, -1 = �
 int8                    slot        # 팔레트 위 슬롯 인덱스. 없으면 -1.
 bool                    held        # 지금 석션에 붙어 있는가
 bool                    on_belt     # 벨트 유효 구간 위에 있는가
+geometry_msgs/Vector3   size        # 실제 치수. 규격이 여러 가지라 필요하다.

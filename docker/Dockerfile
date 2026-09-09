@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         gnupg2 \
         lsb-release \
         python3-pip \
+        fonts-nanum \
         python3-colcon-common-extensions \
         python3-rosdep \
         python3-vcstool \
@@ -73,7 +74,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3-yaml \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --no-cache-dir --break-system-packages \
-        qrcode pillow fastapi "uvicorn[standard]" pyzbar
+        qrcode pillow fastapi "uvicorn[standard]" pyzbar python-barcode
 
 # --- 렌더링 -----------------------------------------------------------------
 # Gazebo의 Sensors 시스템이 ogre2로 카메라를 돌린다.
@@ -109,6 +110,16 @@ ENV NVIDIA_VISIBLE_DEVICES=all \
 # --- 워크스페이스 -----------------------------------------------------------
 WORKDIR /ws
 COPY src /ws/src
+COPY tools /ws/tools
+
+# 라벨 텍스처를 여기서 반드시 다시 만든다.
+#
+# 예전에는 entrypoint가 "파일이 없으면" 만들었다. 그래서 cell.yaml의 라벨
+# 치수를 고쳐도 이미 있는 옛 PNG가 그대로 쓰였다. 실제로 QR 여백을 규격에
+# 맞게 고쳤는데 이틀 전에 만든 라벨이 계속 렌더링되고 있었다. 치수를 바꾼
+# 사람은 바뀌었다고 믿는데 그림은 안 바뀌는, 제일 나쁜 종류의 어긋남이다.
+# 라벨 평면 메시(label_plane.obj)도 같은 스크립트가 만들므로 함께 어긋난다.
+RUN python3 /ws/tools/make_labels.py
 
 # rosdep은 안전망이다. 필요한 것은 위 apt 블록에서 이미 명시적으로 깔았고,
 # fastapi/uvicorn/qrcode는 apt에 없어 pip로 넣었다. 그래서 여기서 무언가
@@ -116,7 +127,7 @@ COPY src /ws/src
 RUN source /opt/ros/jazzy/setup.bash \
     && rosdep update --rosdistro jazzy \
     && rosdep install --from-paths src --ignore-src -r -y \
-         --skip-keys "fastapi uvicorn qrcode pyzbar" \
+         --skip-keys "fastapi uvicorn qrcode pyzbar python-barcode" \
        || echo "rosdep이 일부 키를 못 풀었다. 위 apt/pip 목록으로 충분한지 확인할 것."
 
 RUN source /opt/ros/jazzy/setup.bash \

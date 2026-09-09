@@ -14,15 +14,21 @@ export GZ_SIM_RESOURCE_PATH="/ws/install/box_cell_description/share:/ws/install/
 # 깨지고 지연이 생긴다(기획서 4절).
 export ROS_LOCALHOST_ONLY=0
 
-# 라벨 텍스처가 없으면 만든다. 이미지 빌드 때 넣어 두지만, 소스를 마운트해
-# 개발할 때는 비어 있을 수 있다.
-if [ ! -f /ws/src/box_cell_sim/models/box/materials/textures/box_1.png ]; then
-  if [ -f /ws/tools/make_labels.py ]; then
-    echo "라벨 텍스처가 없다. 만든다."
-    python3 /ws/tools/make_labels.py
-  else
-    echo "경고 : 라벨 텍스처도 tools/make_labels.py도 없다. QR 판독이 실패한다."
+# 라벨 텍스처를 cell.yaml보다 오래됐으면 다시 만든다.
+#
+# "없으면 만든다"로 두었더니, 라벨 치수를 고쳐도 옛 PNG가 그대로 쓰였다.
+# QR 여백을 규격에 맞게 고쳐 놓고 이틀 전 라벨을 계속 렌더링하고 있었다.
+# 이미지 빌드에서도 다시 만들지만, run.sh는 src를 마운트해 덮어쓰므로
+# 여기서 한 번 더 본다.
+LABEL_PNG=/ws/src/box_cell_sim/models/box/materials/textures/box_1.png
+CELL_YAML=/ws/src/box_cell_description/config/cell.yaml
+if [ -f /ws/tools/make_labels.py ]; then
+  if [ ! -f "$LABEL_PNG" ] || [ "$CELL_YAML" -nt "$LABEL_PNG" ]; then
+    echo "라벨 텍스처가 없거나 cell.yaml보다 오래됐다. 다시 만든다."
+    python3 /ws/tools/make_labels.py || echo "경고 : 라벨 생성 실패. QR 판독이 실패한다."
   fi
+elif [ ! -f "$LABEL_PNG" ]; then
+  echo "경고 : 라벨 텍스처도 tools/make_labels.py도 없다. QR 판독이 실패한다."
 fi
 
 exec "$@"
