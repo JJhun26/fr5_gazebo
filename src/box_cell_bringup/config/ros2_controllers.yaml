@@ -58,16 +58,34 @@ joint_trajectory_controller:
       - position
       - velocity
     # 전시 데모는 매번 같은 경로가 나와야 안정적으로 보인다.
-    # 허용 오차를 열어 두면 살짝 어긋난 채로 진행해 궤적이 매번 달라진다.
+    # 그래서 도착 허용 오차(goal)는 0.02로 조인 채로 둔다. 여기가 느슨하면
+    # 살짝 어긋난 자세에서 다음 구간을 시작해 궤적이 매번 달라진다.
+    #
+    # 경로 허용 오차(trajectory)만 0.10에서 0.30으로 연다. 이 값은 "가는
+    # 도중" 검사이고, 우리가 겪은 위반은 실제 추종 불량이 아니라 궤적이
+    # 바뀌어 물리는 순간의 한 주기짜리 튐이었다.
+    #
+    # 근거(실측). 관절 하나를 코사인 프로파일로 움직이며 잰 최대 추종 오차 :
+    #     0.63 rad/s -> 0.0028    0.94 rad/s -> 0.0050
+    #     1.57 rad/s -> 0.0069    2.36 rad/s -> 0.0090
+    # 정지 중 드리프트는 0.0000이다. 그런데 이전 이동을 정착시키지 않고
+    # 다음 목표를 바로 물리면 같은 속도에서 0.15~0.78까지 튄다. 데모에서 난
+    # 위반은 전부 이 모양(0.10~0.15)이었고, 팔이 실제로 경로를 벗어난 게
+    # 아니라 새 궤적의 첫 점과 현재 자세가 어긋난 것이다.
+    #
+    # 0.30은 정상 추종(0.009)의 30배가 넘으므로, 진짜로 못 따라가는 상황은
+    # 여전히 걸린다. 위반이 나면 로봇은 들고 있던 박스를 그 자리에 떨구고
+    # 그 박스는 비스듬히 얹혀 판독도 파지도 안 된다. 실제 이탈이 아닌 것으로
+    # 사이클을 죽이는 쪽이 훨씬 위험하다.
     constraints:
       stopped_velocity_tolerance: 0.02
       goal_time: 0.5
-      j1: {trajectory: 0.10, goal: 0.02}
-      j2: {trajectory: 0.10, goal: 0.02}
-      j3: {trajectory: 0.10, goal: 0.02}
-      j4: {trajectory: 0.10, goal: 0.02}
-      j5: {trajectory: 0.10, goal: 0.02}
-      j6: {trajectory: 0.10, goal: 0.02}
+      j1: {trajectory: 0.30, goal: 0.02}
+      j2: {trajectory: 0.30, goal: 0.02}
+      j3: {trajectory: 0.30, goal: 0.02}
+      j4: {trajectory: 0.30, goal: 0.02}
+      j5: {trajectory: 0.30, goal: 0.02}
+      j6: {trajectory: 0.30, goal: 0.02}
     action_monitor_rate: 20.0
     allow_partial_joints_goal: false
     open_loop_control: false

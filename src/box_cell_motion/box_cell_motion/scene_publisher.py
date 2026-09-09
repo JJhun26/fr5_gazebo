@@ -23,6 +23,8 @@ from box_cell_msgs.msg import PalletState
 from geometry_msgs.msg import Pose
 from moveit_msgs.msg import CollisionObject, PlanningScene
 from moveit_msgs.srv import ApplyPlanningScene
+from rclpy.qos import DurabilityPolicy, QoSProfile
+from std_msgs.msg import Bool
 from rclpy.node import Node
 from shape_msgs.msg import SolidPrimitive
 
@@ -52,7 +54,9 @@ class ScenePublisher(Node):
         # 적재 박스에 줄 여유. x, y에만 준다.
         # 수직으로 부풀리면 위아래로 맞닿은 두 박스가 서로 겹친 것으로 잡히고,
         # 2층을 집는 순간 시작 자세가 충돌이 되어 이탈 직선이 0%로 죽는다.
-        self.declare_parameter("box_padding", 0.004)
+        # 쌓인 박스 충돌체를 얼마나 부풀릴지. 슬롯 간극(15)을 다 먹지 않게
+        # 작게 잡는다. 4로 두었을 때 이웃이 둘인 자리에 못 내려놓았다.
+        self.declare_parameter("box_padding", 0.002)
         self.declare_parameter("retry_sec", 1.0)
 
         self.cell = CellGeometry()
@@ -61,8 +65,30 @@ class ScenePublisher(Node):
         self.known_boxes: set[str] = set()
         self._statics_done = False
 
+        # 로봇이 움직이는 동안에는 씬을 건드리지 않는다.
+        #
+        # MoveIt은 계획해 둔 궤적을 실행하는 동안 씬이 바뀌면 그 궤적을
+        # 버린다(-4). 적재 기록과 반출은 하필 로봇이 아직 움직이는 순간에
+        # 들어오므로, 그대로 반영하면 사이클이 자기 자신을 계속 중단시킨다.
+        # 순환 시나리오에서 매 사이클 그렇게 죽었다.
+        #
+        # 그래서 바뀐 내용을 들고만 있다가 로봇이 멈추면 한 번에 반영한다.
+        # 늦어도 상관없다. 다음 계획이 시작되기 전이면 충분하고, 그 사이에
+        # 로봇은 어차피 멈춰 있다.
+        self._busy = False
+        self._deferred: PalletState | None = None
         self.create_subscription(PalletState, "/pallet/state", self._on_pallet, 10)
+        self.create_subscription(
+            Bool, "/motion/busy", self._on_busy,
+            QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL),
+        )
         self.create_timer(float(self.get_parameter("retry_sec").value), self._ensure_statics)
+
+    def _on_busy(self, msg: Bool) -> None:
+        was, self._busy = self._busy, bool(msg.data)
+        if was and not self._busy and self._deferred is not None:
+            pending, self._deferred = self._deferred, None
+            self._apply_pallet(pending)
 
     # ------------------------------------------------------------------ 공통
     def _apply(self, objects: list[CollisionObject]) -> bool:
@@ -95,38 +121,46 @@ class ScenePublisher(Node):
 
     # ------------------------------------------------------------- 적재 박스
     def _on_pallet(self, msg: PalletState) -> None:
-        """적재 기록이 바뀌면 그 팔레트의 박스 충돌체를 맞춘다."""
+        """적재 기록이 바뀌면 그 팔레트의 박스 충돌체를 맞춘다.
+
+        전에는 슬롯 번호로 자리를 다시 계산했다. 규격이 여러 가지가 되면서
+        고정 격자가 사라졌고, 이제 pallet_manager가 실제 배치를 그대로
+        실어 보낸다. 여기서 다시 계산하면 어긋난다.
+        """
         if not self._statics_done:
             return
-        sx, sy, sz = self.cell.box_size
+        if self._busy:
+            # 마지막 것만 들고 있으면 된다. 중간 상태는 어차피 지나간다.
+            self._deferred = msg
+            return
+        self._apply_pallet(msg)
+
+    def _apply_pallet(self, msg: PalletState) -> None:
         pad = float(self.get_parameter("box_padding").value)
+        want: dict[str, tuple] = {}
+        for i, (code, pose, size) in enumerate(zip(msg.codes, msg.poses, msg.sizes)):
+            name = f"stacked_p{msg.pallet_id}_s{i}"
+            want[name] = (
+                # z는 부풀리지 않는다. 위아래로 맞닿은 두 박스가 서로 겹친
+                # 것으로 잡히면 2층을 집는 순간 시작 자세가 충돌이 된다.
+                (size.x + pad, size.y + pad, size.z),
+                (pose.position.x, pose.position.y, pose.position.z),
+            )
+
         objs: list[CollisionObject] = []
-
-        for index, occupied in enumerate(msg.occupied):
-            name = f"stacked_p{msg.pallet_id}_s{index}"
-            if occupied and name not in self.known_boxes:
-                slot = self.cell.slot(msg.pallet_id, index)
-                objs.append(
-                    box_object(
-                        name,
-                        self.frame,
-                        (sx + pad, sy + pad, sz),   # z는 부풀리지 않는다
-                        (slot.x, slot.y, slot.center_z),
-                        CollisionObject.ADD,
-                    )
-                )
+        mine = {n for n in self.known_boxes if n.startswith(f"stacked_p{msg.pallet_id}_")}
+        for name, (size, pose) in want.items():
+            if name not in mine:
+                objs.append(box_object(name, self.frame, size, pose, CollisionObject.ADD))
                 self.known_boxes.add(name)
-            elif not occupied and name in self.known_boxes:
-                objs.append(box_object(name, self.frame, None, None, CollisionObject.REMOVE))
-                self.known_boxes.discard(name)
-
+        for name in sorted(mine - set(want)):
+            objs.append(box_object(name, self.frame, (0, 0, 0), (0, 0, 0),
+                                   CollisionObject.REMOVE))
+            self.known_boxes.discard(name)
         if objs and self._apply(objs):
-            added = [o.id for o in objs if o.operation == CollisionObject.ADD]
-            removed = [o.id for o in objs if o.operation == CollisionObject.REMOVE]
-            if added:
-                self.get_logger().info(f"충돌체 추가 : {', '.join(added)}")
-            if removed:
-                self.get_logger().info(f"충돌체 제거 : {', '.join(removed)}")
+            for o in objs:
+                verb = "추가" if o.operation == CollisionObject.ADD else "제거"
+                self.get_logger().info(f"충돌체 {verb} : {o.id}")
 
 
 def main() -> None:

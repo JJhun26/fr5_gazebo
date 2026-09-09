@@ -108,12 +108,27 @@
 
          gripper_driver가 어느 박스를 붙일지 고르고 해당 토픽으로 쏜다.
          실물에서 이 노드는 같은 서비스(/gripper/vacuum)를 그대로 유지한 채
-         디지털 출력만 대신 때린다. -->
+         디지털 출력만 대신 때린다.
+
+         parent_link이 es45_cup이 아니라 wrist3_link인 이유가 있다.
+         URDF를 SDF로 바꿀 때 고정 조인트로만 붙은 링크는 부모에 병합된다.
+         es45_adapter / es45_body / es45_cup / tcp_link이 전부 wrist3_link
+         안으로 들어가고, Gazebo 안에는 그 이름의 링크가 없다. 그대로 두면
+         DetachableJoint가 이렇게 말하고 조용히 죽는다 :
+           "Link with name [es45_cup] not found in model [fr5]"
+         구독자가 없으니 흡착 명령이 아무 데도 닿지 않는다. 팔은 집는 시늉만
+         하고 박스는 그대로 있는데, ES45에는 센서가 없으니 로직은 성공한 줄
+         알고 적재 기록을 올린다. 유령 적재가 이렇게 만들어졌다.
+
+         붙는 자리는 달라지지 않는다. 고정 조인트로 한 덩어리인 링크들이라
+         wrist3_link에 붙이든 컵에 붙이든 박스와의 상대 자세는 같다.
+         MoveIt 쪽(motion_server의 attach_link)은 URDF를 보므로 es45_cup을
+         그대로 쓴다. 그쪽에는 링크가 살아 있다. -->
     <xacro:macro name="suction_target" params="idx">
       <gazebo>
         <plugin filename="gz-sim-detachable-joint-system"
                 name="gz::sim::systems::DetachableJoint">
-          <parent_link>es45_cup</parent_link>
+          <parent_link>wrist3_link</parent_link>
           <child_model>box_${idx}</child_model>
           <child_link>box_link</child_link>
           <attach_topic>/suction/box_${idx}/attach</attach_topic>
@@ -133,8 +148,10 @@
     </xacro:macro>
     <xacro:suction_targets i="1"/>
 
-    <!-- 컵 표면 마찰. 붙은 박스가 조인트로 잡히기 전 한 프레임 미끄러지는 것을 줄인다. -->
-    <gazebo reference="es45_cup">
+    <!-- 컵 표면 마찰. 붙은 박스가 조인트로 잡히기 전 한 프레임 미끄러지는 것을
+         줄인다. 여기도 es45_cup이 아니라 wrist3_link다. 위와 같은 이유로
+         SDF에는 컵 링크가 남아 있지 않다. -->
+    <gazebo reference="wrist3_link">
       <mu1>1.2</mu1>
       <mu2>1.2</mu2>
     </gazebo>

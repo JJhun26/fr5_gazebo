@@ -55,6 +55,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-jazzy-moveit \
         ros-jazzy-moveit-planners-ompl \
         ros-jazzy-pilz-industrial-motion-planner \
+        ros-jazzy-pick-ik \
         ros-jazzy-moveit-configs-utils \
         ros-jazzy-moveit-simple-controller-manager \
         ros-jazzy-xacro \

@@ -1,8 +1,36 @@
 fr5_arm:
-  # KDL을 쓴다. 공식 fairino5_v6_moveit2_config와 같은 선택이다.
-  # 해석해가 있는 IKFast를 붙이면 더 빠르지만, 석션 TCP 오프셋이 바뀔 때마다
-  # 다시 생성해야 한다. 데모 규모에서는 KDL로 충분하다.
-  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
-  kinematics_solver_search_resolution: 0.005
-  kinematics_solver_timeout: 0.02
-  kinematics_solver_attempts: 5
+  # pick_ik를 쓴다. 공식 fairino5_v6_moveit2_config는 KDL이지만 여기서는 못 쓴다.
+  #
+  # KDL은 무작위 재시작을 도는 수치 솔버라 같은 자세를 물어도 될 때가 있고
+  # 안 될 때가 있다. 이 셀에서 그 성질이 그대로 드러났다.
+  #   - compute_cartesian_path가 적재 하강 직선을 43%, 61%, 79%처럼
+  #     제각각 풀다 말았다. 같은 자리, 같은 자세인데 실행할 때마다 달랐다.
+  #   - /compute_ik로 그 직선 위 26개 지점을 하나씩 물어보면 (충돌 검사까지
+  #     포함해) 전부 풀린다. 즉 도달성 문제가 아니라 솔버가 놓친 것이다.
+  #     compute_cartesian_path는 2 mm마다 IK를 부르므로 125번을 연달아
+  #     성공해야 하는데, 한 번만 놓쳐도 거기서 잘린다.
+  #   - 같은 코드로 6사이클을 다 돌기도 하고 1사이클도 못 돌기도 했다.
+  #     사이클 성패가 난수에 달려 있었다.
+  #
+  # pick_ik는 비선형 최적화 기반이라 같은 질문에 같은 답을 준다.
+  # minimal_displacement_weight를 주어 직전 자세에서 가장 적게 움직이는 해를
+  # 고르게 한다. 직선 구간에서 팔꿈치가 갑자기 뒤집히는 것을 막는다.
+  kinematics_solver: pick_ik/PickIkPlugin
+  kinematics_solver_timeout: 0.05
+  kinematics_solver_attempts: 3
+  mode: global
+  position_scale: 1.0
+  rotation_scale: 0.5
+  position_threshold: 0.001
+  orientation_threshold: 0.01
+  # 최소 변위 항이 비용에 더해지므로 문턱을 그만큼 올려 둔다. 0.001로 두면
+  # 변위 가중치를 조금만 줘도 비용이 문턱 아래로 못 내려가 IK가 아예 안
+  # 풀린다. 실제로 그렇게 되어 Pilz가 INVALID_GOAL_CONSTRAINTS를 144번 냈다.
+  cost_threshold: 0.05
+  # 시드에서 적게 움직이는 해를 고르게 하는 가중치. 이 값이 있어야 같은
+  # 지점에 늘 같은 자세로 간다. 없으면 같은 TCP 지점에 j1이 148도 다른
+  # 자세로 도착한다(moveit_client.joints_for 주석 참고).
+  # 위의 cost_threshold와 짝이다. 둘 중 하나만 건드리면 IK가 안 풀린다.
+  minimal_displacement_weight: 0.01
+  gd_step_size: 0.0001
+  approximate_solutions: false

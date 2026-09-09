@@ -78,6 +78,9 @@ class GripperDriver(Node):
         self.state_pub = self.create_publisher(Bool, "/gripper/vacuum_state", 10)
         self.held_pub = self.create_publisher(String, "/sim/gripper/attached", 10)
 
+        # 새로 나타난 박스는 반드시 한 번 떼어 준다. 아래 _release_new 주석 참고.
+        self._detached: set[str] = set()
+
         self.create_subscription(BoxPoseArray, "/sim/boxes", self._on_boxes, 10)
         self.create_service(Vacuum, "/gripper/vacuum", self._on_vacuum)
         self.create_timer(0.1, self._heartbeat)
@@ -86,6 +89,32 @@ class GripperDriver(Node):
 
     def _on_boxes(self, msg: BoxPoseArray) -> None:
         self.boxes = msg
+        if self.mode == "sim":
+            self._release_new(msg)
+
+    def _release_new(self, msg: BoxPoseArray) -> None:
+        """새로 나타난 박스를 한 번 떼어 놓는다.
+
+        설치된 gz-sim의 DetachableJoint는 **로드 시점에 초기 부착을 한다.**
+        문서에는 attach 요청이 오기 전에는 조인트를 만들지 않는다고 되어
+        있지만, 실제로는 박스가 생기는 순간 wrist3_link에 용접된다.
+
+        그 상태의 박스는 중력도 받지 않고, 50 N을 걸어도 안 움직이고, 도는
+        롤러 위에서도 안 실린다. 로봇에 붙어 있으니 당연하다. 이 한 줄이
+        없어서 컨베이어가 통째로 죽어 있었다. detach를 한 번 보내면 그
+        자리에서 떨어져 정상으로 돌아온다.
+
+        실물에는 대응물이 없는, 순전히 시뮬레이터 사정이다.
+        """
+        for b in msg.boxes:
+            if b.name in self._detached or b.name == self.attached:
+                continue
+            pub = self.detach_pub.get(b.name)
+            if pub is None:
+                continue
+            pub.publish(Empty())
+            self._detached.add(b.name)
+            self.get_logger().info(f"{b.name} 초기 부착 해제 (gz DetachableJoint 기본 동작 보정)")
 
     # ------------------------------------------------------------------ 서비스
     def _on_vacuum(self, req: Vacuum.Request, res: Vacuum.Response) -> Vacuum.Response:
@@ -104,12 +133,14 @@ class GripperDriver(Node):
                 return res
             self.attach_pub[target].publish(Empty())
             self.attached = target
+            self._detached.discard(target)
             res.accepted = True
             res.detail = f"진공 ON. {target} 흡착"
         else:
             if self.attached:
                 self.detach_pub[self.attached].publish(Empty())
                 res.detail = f"진공 OFF. {self.attached} 해제"
+                self._detached.add(self.attached)
                 self.attached = ""
             else:
                 res.detail = "진공 OFF"
@@ -156,15 +187,20 @@ class GripperDriver(Node):
         rng = float(self.get_parameter("grasp_range").value)
         rad = float(self.get_parameter("grasp_radius").value)
         tilt = float(self.get_parameter("grasp_tilt").value)
-        half_h = self.cell.box_height / 2.0
+        # 규격이 여러 가지라 반 높이가 박스마다 다르다. /sim/boxes가 실제
+        # 치수를 함께 준다(정답지다. 실물에는 없는 정보이고, 이 노드는
+        # 시뮬레이터 쪽 노드라 써도 된다).
 
         best: tuple[float, str] | None = None
+        # 조건을 못 맞춘 후보 중 가장 가까웠던 것. 실패 원인을 남기는 데 쓴다.
+        near: tuple[str, float, float, float] | None = None
         for b in self.boxes.boxes:
             if b.held:
                 continue
             p = b.pose.position
             o = b.pose.orientation
             top_normal = quat_to_z_axis(o.x, o.y, o.z, o.w)
+            half_h = (b.size.z / 2.0) if b.size.z > 1e-6 else (self.cell.box_height / 2.0)
             top = (
                 p.x + top_normal[0] * half_h,
                 p.y + top_normal[1] * half_h,
@@ -177,6 +213,8 @@ class GripperDriver(Node):
             cosang = -sum(axis[i] * top_normal[i] for i in range(3))
             angle = math.acos(max(-1.0, min(1.0, cosang)))
 
+            if near is None or abs(along) + lateral < abs(near[1]) + near[2]:
+                near = (b.name, along, lateral, angle)
             if not (-0.005 <= along <= rng):
                 continue
             if lateral > rad or angle > tilt:
@@ -186,6 +224,23 @@ class GripperDriver(Node):
                 best = (score, b.name)
 
         if best is None:
+            # 왜 아무것도 안 붙었는지 남긴다. 실물에서도 헛집는 일은 있지만,
+            # 시뮬레이터에서 원인을 모르면 고칠 수가 없다. 가장 가까웠던
+            # 후보의 세 수치를 보면 무엇이 모자랐는지 바로 보인다.
+            if near is None:
+                self.get_logger().warn("흡착 대상 후보가 아예 없다 (/sim/boxes가 비었나)")
+            else:
+                name, along, lateral, angle = near
+                why = []
+                if not (-0.005 <= along <= rng):
+                    why.append(f"축방향 {along*1000:+.1f} mm (허용 -5 ~ {rng*1000:.0f})")
+                if lateral > rad:
+                    why.append(f"옆으로 {lateral*1000:.1f} mm (허용 {rad*1000:.0f})")
+                if angle > tilt:
+                    why.append(f"기울기 {math.degrees(angle):.1f} 도 (허용 {math.degrees(tilt):.0f})")
+                self.get_logger().warn(
+                    f"흡착 조건 미달. 가장 가까운 {name} : " + ", ".join(why)
+                )
             return None
         return best[1]
 
