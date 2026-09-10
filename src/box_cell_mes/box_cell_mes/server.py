@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sqlite3
 import time
 from pathlib import Path
@@ -417,7 +418,10 @@ def run_fastapi(store: Store, host: str, port: int, static: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--db", type=Path, default=Path("/tmp/box_cell/mes.sqlite3"))
+    # 산출물 위치는 BOX_CELL_DATA_DIR로 옮길 수 있다. 이 패키지는 ROS 없이도
+    # 돌아야 해서(python3 server.py) box_cell_common을 부르지 않고 환경 변수만 본다.
+    data_dir = Path(os.environ.get("BOX_CELL_DATA_DIR") or "/tmp/box_cell")
+    ap.add_argument("--db", type=Path, default=data_dir / "mes.sqlite3")
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8020)
     ap.add_argument("--seed", type=Path, default=None)

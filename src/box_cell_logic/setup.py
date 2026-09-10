@@ -27,6 +27,7 @@ setup(
             "mes_client = box_cell_logic.mes_client:main",
             "dry_run_scorer = box_cell_logic.dry_run_scorer:main",
             "twin_bridge = box_cell_logic.twin_bridge:main",
+            "twin_mirror = box_cell_logic.twin_mirror:main",
         ],
     },
 )

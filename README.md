@@ -17,6 +17,16 @@
 C3는 기획서에도 기종이 비어 있고 지시에도 없어서 일반 RGB로 두었다.
 `cell.yaml`의 `cameras.c3_scene.model` 한 줄만 바꾸면 확정 기종으로 갈린다.
 
+**Ubuntu 24.04에서 바로 돌리려면** 세 줄이다. Docker는 필요 없다.
+
+```bash
+./scripts/install_deps.sh     # ROS 2 Jazzy + Gazebo Harmonic + MoveIt
+./scripts/build.sh
+./scripts/run_demo.sh
+```
+
+`docs/native_ubuntu24.md`(호스트 설치), `docs/digital_twin.md`(실물 FR5 연결).
+
 ---
 
 ## 지금 바로 확인할 수 있는 것
@@ -426,10 +436,13 @@ C2/C3는 5 Hz, C4는 10 Hz다.
 둘 다 이미지에 들어 있다. 확인하려면 :
 
 ```bash
-./docker/run.sh bash -lc 'glxinfo -B | grep "OpenGL renderer"'
+glxinfo -B | grep "OpenGL renderer"                          # 호스트 설치
+./docker/run.sh bash -lc 'glxinfo -B | grep "OpenGL renderer"'   # 컨테이너
 ```
 
 `NVIDIA GeForce RTX 4090`이 나와야 한다. `llvmpipe`가 나오면 GPU를 안 쓰는 것이다.
+**이 두 줄(EGL ICD, GLX 벤더)은 컨테이너에서만 필요한 일이다.** 호스트에
+직접 깔면 드라이버 패키지가 이미 해 둔다. `docs/native_ubuntu24.md` 참고.
 
 ### 실측 3 : 로봇이 덜덜 떠는 문제
 
@@ -457,29 +470,35 @@ target_vel = gain * update_rate * (목표 - 현재)
 
 ## 실행에 필요한 것
 
-이 PC는 Ubuntu 26.04라 ROS 2 Jazzy 공식 바이너리가 없다(Jazzy는 24.04용이다).
-그래서 시뮬레이션은 컨테이너로 돈다. 기획서 4절이 엣지를 Docker로 배포한다고
-정해 둔 것과 같은 방식이다.
+**Ubuntu 24.04면 Docker가 필요 없다.** ROS 2 Jazzy와 Gazebo Harmonic의 공식
+바이너리가 24.04용이고, GPU는 호스트 드라이버가 이미 제자리에 있다.
 
-Docker는 설치 완료. **남은 것은 NVIDIA 컨테이너 런타임 하나뿐이고, 위에서
-적었듯 이건 선택이 아니다.** Ubuntu 기본 저장소에는 없어서 NVIDIA 저장소를
-추가해야 한다.
+```bash
+./scripts/install_deps.sh     # ROS 2 Jazzy + Gazebo Harmonic + MoveIt (20~40분)
+./scripts/build.sh            # 워크스페이스 빌드 (5~10분)
+./scripts/doctor.sh           # 환경 점검. 무엇이 빠졌는지 한 줄씩 답한다
+```
+
+자세한 것은 `docs/native_ubuntu24.md`.
+
+컨테이너에서 실시간 계수를 0.004에서 1.00으로 끌어올리느라 했던 일의 절반은
+**컨테이너였기 때문에 생긴 일**이었다. NVIDIA EGL ICD 주입도, GLX 벤더
+못박기도, `--shm-size=2g`도, `--network host`도 호스트에서는 할 일이 아니다.
+남는 것은 소켓 수신 버퍼 하나뿐이고 `install_deps.sh`가 올린다.
+
+### Docker로 돌릴 때 (26.04 개발 PC 등)
+
+Jazzy 바이너리가 없는 배포판에서는 컨테이너가 여전히 유일한 길이다.
+기획서 4절이 엣지를 Docker로 배포한다고 정해 둔 것과도 같은 방식이다.
+`docker/` 아래는 그대로 있다.
+
+NVIDIA 컨테이너 런타임이 필요하고, 위에 적었듯 이건 선택이 아니다.
 
 ```bash
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-```
-
-```bash
 curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-```
-
-```bash
 sudo apt update && sudo apt install -y nvidia-container-toolkit && sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
-```
 
-그다음 :
-
-```bash
 ./docker/build.sh      # 이미 한 번 성공했다. 소스만 바뀌면 1분.
 ./docker/run.sh        # 전체 데모
 ```
@@ -492,15 +511,24 @@ sudo apt update && sudo apt install -y nvidia-container-toolkit && sudo nvidia-c
 ## 실행
 
 ```bash
-./docker/run.sh                                    # Gazebo + MoveIt + 전체 로직
-./docker/run.sh ros2 launch box_cell_bringup demo.launch.py hardware:=mock
-./docker/run.sh ros2 launch box_cell_bringup demo.launch.py rviz:=true
-./docker/run.sh ros2 launch box_cell_bringup demo.launch.py autostart:=false
+./scripts/run_demo.sh                                  # Gazebo + MoveIt + 전체 로직
+./scripts/run_demo.sh headless:=true                   # 화면 없이. 카메라는 돈다
+./scripts/run_demo.sh hardware:=mock                   # Gazebo 없이 MoveIt까지
+./scripts/run_demo.sh rviz:=true
+./scripts/run_demo.sh autostart:=false
+./scripts/run_demo.sh hardware:=real robot_ip:=192.168.58.2   # 실물 FR5
 ```
+
+`run_demo.sh`는 환경을 깔고 라벨 텍스처를 확인한 다음 `ros2 launch`를 부른다.
+인자는 그대로 넘어간다. 셸에서 직접 치려면 `source scripts/setup_env.sh` 먼저.
+컨테이너로 돌릴 때는 앞에 `./docker/run.sh`를 붙이면 같은 인자가 그대로 간다.
 
 `hardware:=mock`은 Gazebo 없이 `mock_components/GenericSystem`으로 돈다.
 기획서 R2의 "실물 없이 MoveIt2까지 전부 구동"이 이것이다. 궤적은 제대로
 계산되고 실행만 흉내다. 노트북에서 로직을 고칠 때 쓴다.
+
+`hardware:=real`은 FAIRINO 드라이버로 실물 FR5를 문다. 실물 전용 구성은
+`real.launch.py`가 따로 있다. `docs/digital_twin.md`를 먼저 읽을 것.
 
 `autostart:=false`면 상태 기계가 IDLE에서 기다린다. 시작 순간을 사람이
 잡고 싶을 때 :
@@ -509,7 +537,11 @@ sudo apt update && sudo apt install -y nvidia-container-toolkit && sudo nvidia-c
 ros2 topic pub --once /cell/command std_msgs/msg/String "{data: start}"
 ```
 
-MES 대시보드는 <http://localhost:8020>.
+MES 대시보드는 <http://localhost:8020>, 트윈 JSON은 <http://localhost:8030/twin>.
+
+산출물(적재 기록, MES DB, 트윈 JSON, Dry Run 점수)은 `BOX_CELL_DATA_DIR`에
+쌓인다. 기본값은 `/tmp/box_cell`이고, 실물 셀에서는 재부팅을 넘기는 곳으로
+옮긴다(`export BOX_CELL_DATA_DIR=/var/lib/box_cell`).
 
 ---
 
@@ -529,7 +561,15 @@ MES 대시보드는 <http://localhost:8020>.
 | `box_cell_logic` | `task_manager`(상태 기계), `pallet_manager`(적재 기록), `mes_client` |
 | `box_cell_conveyor` | `conveyor_driver`. 벨트 구동과 정지 센서 |
 | `box_cell_mes` | FastAPI + SQLite MES 서버, 대시보드 |
-| `box_cell_bringup` | 런치와 파라미터 |
+| `box_cell_bringup` | 런치와 파라미터. `demo`(시뮬/mock/실물), `real`(실물 전용), `control` |
+
+저장소 뿌리에는 둘이 더 있다.
+
+| 디렉터리 | 내용 |
+|--------|------|
+| `scripts/` | 호스트 설치·빌드·실행·점검 (`install_deps` `build` `run_demo` `doctor` `setup_env`) |
+| `docker/` | 컨테이너 쪽. Jazzy 바이너리가 없는 배포판에서 쓴다 |
+| `docs/` | `native_ubuntu24.md`(호스트 설치), `digital_twin.md`(실물 연결), `real_robot_bringup.md` |
 
 ### cell.yaml 하나만 고치면 된다
 
@@ -682,10 +722,16 @@ ros2_control 계층은 `gz_ros2_control/GazeboSimSystem`으로 옮겼다.
   도면이 나오면 그 블록만 고치면 형상과 Planning Scene이 함께 따라온다.
 - **C3 기종 미정.** 위에 적은 대로 `model` 한 줄이다.
 - ~~트윈 브리지가 없다.~~ **`twin_bridge`가 있다.** 기획서 D4.
-  셀 상태를 JSON 한 덩어리로 파일(`/tmp/box_cell/twin.json`),
+  셀 상태를 JSON 한 덩어리로 파일(`$BOX_CELL_DATA_DIR/twin.json`),
   토픽(`/twin/state`), HTTP(`:8030/twin`) 세 곳에 낸다. 내기만 하고 받지
   않는다. 스키마가 시뮬/실물에 의존하지 않아 실물 셀에서 `source:=real`로
-  그대로 띄운다.
+  그대로 띄운다(`real.launch.py`가 자동으로 채운다).
+- **트윈의 반대 방향(`twin_mirror`)은 자리만 있다.** 실물 관절을 받아
+  시뮬 로봇을 따라 움직이게 하는 노드를 넣었지만(`twin:=true`),
+  **실물로는 아직 확인하지 않았다.** 실물이 없어서다. 주변 장치의 I/O도
+  토픽 계약(`/io/tool_do`, `/io/conveyor_run`, `/io/photo_eye`)만 있고
+  그것을 24 V로 옮기는 게이트웨이 노드가 없다. 무엇이 준비돼 있고 무엇이
+  비어 있는지는 `docs/digital_twin.md`에 갈라 적었다.
 - ~~Dry Run 채점기가 없다.~~ **`dry_run_scorer`가 있다.** 기획서 D3.
   처리량, 사이클 시간(투입/순환을 갈라서), 판독 성공률과 신뢰도, 예외 사유,
   적재 정확도(기록 대 정답지)를 `/tmp/box_cell/dry_run.json`에 쓴다.
@@ -707,11 +753,12 @@ ros2_control 계층은 `gz_ros2_control/GazeboSimSystem`으로 옮겼다.
 순환        투입 로트를 다 받은 뒤 팔레트 사이 반출/재적재가 계속 돈다
 ```
 
-`dry_run_scorer`가 이 숫자를 `/tmp/box_cell/dry_run.json`에 매번 다시 쓴다.
+`dry_run_scorer`가 이 숫자를 `$BOX_CELL_DATA_DIR/dry_run.json`에 매번 다시 쓴다.
 
 ## 다음에 볼 것
 
-1. `./docker/run.sh` 로 전체 데모(GUI). 헤드리스로만 확인했다.
+1. `./scripts/run_demo.sh` 로 전체 데모(GUI). 헤드리스로만 확인했다.
+   (컨테이너로 볼 때는 `./docker/run.sh`)
    - 실시간 계수가 0.8 이상인가
    - 박스가 팔레트 구석부터 하나씩 쌓이는가
    - 왼쪽 위 메뉴 겹침이 실제로 풀렸는가
@@ -722,10 +769,15 @@ ros2_control 계층은 `gz_ros2_control/GazeboSimSystem`으로 옮겼다.
 
 ## 실행에 필요한 것 (헤드리스에서 알아낸 것)
 
+앞의 둘은 **컨테이너에서만** 필요하다. 호스트에 직접 깔면 생기지 않는다.
+
 - `--shm-size=2g`. 기본 64 MB로는 Gazebo가 죽는다.
+  (호스트의 `/dev/shm`은 보통 메모리의 절반이라 넉넉하다)
 - `-e __EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/10_nvidia.json`.
   이게 없으면 헤드리스 EGL이 소프트웨어 렌더러를 잡아 GPU 사용률이 0이 되고
-  카메라가 초당 한 장도 못 낸다.
+  카메라가 초당 한 장도 못 낸다. (호스트에서는 드라이버가 등록해 둔다)
+
+아래는 **양쪽 다** 해당한다. 호스트 커널 설정이기 때문이다.
 - 소켓 버퍼(`net.core.rmem_max`)가 4 MB인 호스트에서 1920x1080 컬러 원본
   (6.2 MB)은 **한 장이 버퍼보다 커서** 대부분 유실된다. 그래서 판독기는
   압축 토픽(`.../image/compressed`)을 받는다. 해상도는 실기 제원 그대로 둔다.

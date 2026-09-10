@@ -26,6 +26,7 @@ from pathlib import Path
 
 import rclpy
 from box_cell_common.cell_geometry import CellGeometry
+from box_cell_common.paths import data_path
 from box_cell_msgs.srv import ItemQuery
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
@@ -37,7 +38,7 @@ class MesClient(Node):
 
         self.declare_parameter("base_url", "http://127.0.0.1:8020")
         self.declare_parameter("cell_id", "cell-01")
-        self.declare_parameter("queue_file", "/tmp/box_cell/mes_queue.jsonl")
+        self.declare_parameter("queue_file", data_path("mes_queue.jsonl"))
         self.declare_parameter("timeout", 1.5)
         self.declare_parameter("retry_sec", 5.0)
 

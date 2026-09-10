@@ -3,6 +3,10 @@
 **결론부터.** 로봇 팔은 URDF 인자 하나로 바꿔 끼울 수 있게 이미 되어 있다.
 막히는 곳은 로봇이 아니라 **주변 장치와 좌표**다. 순서대로 적는다.
 
+> 이 문서는 "무엇을 바꿔 끼워야 하는가"의 검토다. 그 뒤에 실제로 들어간
+> 자리(런치 인자, I/O 토픽 계약, `twin_mirror`)와 무엇이 아직 비어 있는지는
+> `docs/digital_twin.md`에 있다. 호스트 설치는 `docs/native_ubuntu24.md`.
+
 ---
 
 ## 1. 지금 구조에서 실물과 시뮬을 가르는 곳
@@ -21,7 +25,12 @@
 
 ```bash
 ros2 launch box_cell_bringup demo.launch.py hardware:=real robot_ip:=192.168.58.2
+ros2 launch box_cell_bringup real.launch.py robot_ip:=192.168.58.2   # 실물 전용 구성
 ```
+
+`real.launch.py`는 Gazebo가 없다는 전제로 쓴 것이다. 정답지(`/sim/boxes`)도
+`box_feeder`도 없고, 기본이 `autostart:=false`다(실물이 저 혼자 시작하면 안
+된다). 카메라 드라이버와 IO 게이트웨이는 밖에서 온다.
 
 ## 2. 그대로 쓸 수 있는 것
 
@@ -35,7 +44,7 @@ ros2 launch box_cell_bringup demo.launch.py hardware:=real robot_ip:=192.168.58.
 | `pose_resolver` | 그대로 | `CameraInfo` + TF로 호모그래피를 만든다 |
 | `stack_check` | 그대로 | 깊이 영상과 TF |
 | `scene_publisher` | 그대로 | `/pallet/state`를 본다. 시뮬 정답지를 안 본다 |
-| `twin_bridge` | `source:=real`만 | 스키마가 같다 |
+| `twin_bridge` | `source:=real`만 | 스키마가 같다 (런치가 자동으로 채운다) |
 
 `scene_publisher`가 `/sim/boxes`가 아니라 `/pallet/state`를 보게 해 둔 것이
 여기서 값을 한다. 계획 씬이 시뮬레이터에 묶여 있지 않다.
@@ -50,6 +59,10 @@ ros2 launch box_cell_bringup demo.launch.py hardware:=real robot_ip:=192.168.58.
 디지털 출력 하나다. Modbus/TCP나 로봇 컨트롤러의 DO를 때리면 된다.
 
 `/gripper/vacuum` 서비스 인터페이스는 그대로 두고 구현만 바꾼다.
+지금은 `mode:=real`이면 밸브 상태가 `std_msgs/Bool` 하나로 `/io/tool_do`에
+나간다. 그 토픽을 실제 24 V 출력으로 옮기는 IO 게이트웨이는 배선과 함께
+온다. 배선 전 첫 시운전은 `io_backend:=none`으로 아예 내지 않는다.
+
 **주의할 것이 하나 있다.** 지금 이 노드는 `/sim/boxes`를 보고 "무엇을
 잡았는지"를 정하는데, 실물에는 그 정보가 없다. ES45에는 피드백이 없다.
 그래서 실물에서는 잡았는지를 **정지 센서(집어 갔으면 판독 자리가 빈다)와
@@ -58,9 +71,15 @@ C2 적재 확인**으로만 안다. 그 두 개가 이미 있는 것이 다행�
 ### 3-2. `conveyor_driver`
 
 지금은 gz `TrackController`에 표면 속도를 준다. 실물은 인버터 기동/정지
-신호와 광전 센서 입력이다. `/conveyor/command` 서비스는 그대로 둔다.
+신호와 광전 센서 입력이다. `/belt/command` 서비스는 그대로 둔다.
 `stop_sensor_x`로 위치를 재는 부분이 **실물에서는 센서 한 개의 on/off**로
 바뀐다. 오히려 단순해진다.
+
+이것도 `mode:=real`로 갈라 넣었다. 기동/정지는 `/io/conveyor_run`으로 나가고
+정지 센서는 `/io/photo_eye`로 받는다. 실물에는 "어느 박스인지"가 없으므로
+`/conveyor/box_at_station`에는 고정 이름 하나가 나간다. `task_manager`는
+이름의 내용이 아니라 같은 이름이 계속 보이는지만 보므로(헛집기 인터록)
+그대로 성립한다.
 
 ### 3-3. `box_feeder`
 

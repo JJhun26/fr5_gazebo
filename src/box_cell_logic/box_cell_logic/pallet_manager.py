@@ -25,6 +25,7 @@ from pathlib import Path
 
 import rclpy
 from box_cell_common.cell_geometry import CellGeometry
+from box_cell_common.paths import data_path
 from box_cell_common.pallet_pack import Packer, Placement
 from box_cell_msgs.msg import PalletState
 from box_cell_msgs.srv import NextSlot, ReleaseSlot
@@ -50,7 +51,7 @@ class PalletManager(Node):
     def __init__(self) -> None:
         super().__init__("pallet_manager")
 
-        self.declare_parameter("state_file", "/tmp/box_cell/pallet_state.json")
+        self.declare_parameter("state_file", data_path("pallet_state.json"))
         # 기동 시 가득 찬 팔레트. 0이면 둘 다 빈 채로 시작한다.
         # -1이면 cell.yaml의 시나리오를 따른다 : infeed는 둘 다 비고,
         # circulate는 팔레트 1이 가득 찬 상태에서 출발한다.

@@ -24,6 +24,15 @@
 
 정지 센서는 실물의 광전 센서다. 박스 중심이 stop_sensor_x를 지나면 롤러를
 멈춘다. 실물도 관성으로 조금 더 가므로 여기서도 즉시 멈추지 않는다.
+
+mode:=real이면 밑이 통째로 바뀐다. 롤러 각속도 대신 인버터 기동/정지 신호
+하나를 내고(/io/conveyor_run), 위치 계산 대신 광전 센서 입력 하나를 받는다
+(/io/photo_eye). 오히려 단순해진다. 위쪽이 보는 것(/belt/command 서비스와
+/conveyor/* 상태 토픽)은 두 모드가 완전히 같다. 그래서 task_manager는 어느
+쪽이 밑에 있는지 모른다.
+
+두 토픽을 실제 I/O로 옮기는 것은 IO 게이트웨이의 일이고, 그 노드는 배선과
+함께 온다. 그 전에도 토픽은 나가므로 상위 타이밍은 그대로 확인할 수 있다.
 """
 
 from __future__ import annotations
@@ -46,6 +55,14 @@ class ConveyorDriver(Node):
         # 기동 직후에는 롤러 쪽 구독이 아직 안 붙었을 수 있다.
         # 값이 같아도 이 횟수만큼은 다시 보낸다.
         self.declare_parameter("resend", 5)
+        # sim | real. real이면 롤러 대신 인버터, /sim/boxes 대신 광전 센서.
+        self.declare_parameter("mode", "sim")
+        self.declare_parameter("run_topic", "/io/conveyor_run")
+        self.declare_parameter("photo_eye_topic", "/io/photo_eye")
+        # 실물에는 "어느 박스인지"가 없다. 광전 센서는 있다/없다만 안다.
+        # 상위(task_manager)는 이름의 내용이 아니라 같은 이름이 계속 보이는지만
+        # 보므로(집어 갔으면 자리가 빈다는 인터록), 고정 이름 하나면 된다.
+        self.declare_parameter("real_station_name", "box_at_station")
 
         self.cell = CellGeometry()
         # 통짜 벨트다. TrackController에 표면 속도(m/s)를 그대로 준다.
@@ -66,25 +83,47 @@ class ConveyorDriver(Node):
         self._commanded: float | None = None
         self._repeat = 0
 
+        self.hw_mode = str(self.get_parameter("mode").value)
+        self.photo_eye = False
+
         self.speed_pub = self.create_publisher(Float64, "/conveyor/belt_speed", 10)
         self.sensor_pub = self.create_publisher(Bool, "/conveyor/stop_sensor", 10)
         self.station_pub = self.create_publisher(String, "/conveyor/box_at_station", 10)
         self.running_pub = self.create_publisher(Bool, "/conveyor/running", 10)
 
-        self.create_subscription(BoxPoseArray, "/sim/boxes", self._on_boxes, 10)
+        if self.hw_mode == "real":
+            self.run_pub = self.create_publisher(
+                Bool, str(self.get_parameter("run_topic").value), 10
+            )
+            self.create_subscription(
+                Bool, str(self.get_parameter("photo_eye_topic").value), self._on_photo_eye, 10
+            )
+        else:
+            self.run_pub = None
+            self.create_subscription(BoxPoseArray, "/sim/boxes", self._on_boxes, 10)
         self.create_service(BeltCommand, "/belt/command", self._on_command)
         rate = float(self.get_parameter("control_rate").value)
         self.create_timer(1.0 / rate, self._control)
 
-        self.get_logger().info(
-            f"컨베이어 준비. 벨트 {self.cell.belt_speed} m/s "
-            f"= 벨트 표면 {self.surface_speed:.2f} m/s, "
-            f"정지 센서 x={self.cell.stop_sensor_x}"
-        )
+        if self.hw_mode == "real":
+            self.get_logger().info(
+                f"컨베이어 준비 (real). 기동/정지 {self.get_parameter('run_topic').value}, "
+                f"광전 센서 {self.get_parameter('photo_eye_topic').value}"
+            )
+        else:
+            self.get_logger().info(
+                f"컨베이어 준비. 벨트 {self.cell.belt_speed} m/s "
+                f"= 벨트 표면 {self.surface_speed:.2f} m/s, "
+                f"정지 센서 x={self.cell.stop_sensor_x}"
+            )
 
     # ------------------------------------------------------------------ 입력
     def _on_boxes(self, msg: BoxPoseArray) -> None:
         self.boxes = msg
+
+    def _on_photo_eye(self, msg: Bool) -> None:
+        """실물 정지 센서. 차광되면 True."""
+        self.photo_eye = bool(msg.data)
 
     def _on_command(
         self, req: BeltCommand.Request, res: BeltCommand.Response
@@ -119,7 +158,12 @@ class ConveyorDriver(Node):
             self._repeat -= 1
         else:
             self._repeat = int(self.get_parameter("resend").value)
-        self.speed_pub.publish(Float64(data=float(scale * self.surface_speed)))
+        if self.hw_mode == "real" and self.run_pub is not None:
+            # 인버터는 속도를 모른다. 기동이냐 정지냐 둘뿐이다.
+            # 벨트 속도는 인버터 파라미터로 잡아 두고 여기서는 건드리지 않는다.
+            self.run_pub.publish(Bool(data=scale > 0.5))
+        else:
+            self.speed_pub.publish(Float64(data=float(scale * self.surface_speed)))
         self._commanded = scale
 
     def _at_station(self):
@@ -138,8 +182,25 @@ class ConveyorDriver(Node):
                 return b
         return None
 
+    def _station(self) -> tuple[bool, str]:
+        """정지 자리에 무엇이 서 있는가. (있는가, 이름)
+
+        sim은 정답지에서 위치와 속도를 본다. real은 광전 센서 하나뿐이다.
+        위쪽에는 두 모드가 같은 모양으로 나간다.
+        """
+        if self.hw_mode == "real":
+            if self.photo_eye:
+                return True, str(self.get_parameter("real_station_name").value)
+            return False, ""
+        b = self._at_station()
+        return (b is not None, b.name if b is not None else "")
+
     def _passed_sensor(self) -> bool:
         """정지 센서를 지난 박스가 있는가. 지났으면 더 보내면 안 된다."""
+        if self.hw_mode == "real":
+            # 실물은 센서 하나뿐이라 "지났다"를 따로 알 수 없다. 차광 중이면
+            # 그 자리에 있는 것이고, 그때는 어차피 보내지 않는다.
+            return self.photo_eye
         if self.boxes is None:
             return False
         return any(
@@ -150,14 +211,12 @@ class ConveyorDriver(Node):
     def _control(self) -> None:
         running = self.mode in (BeltCommand.Request.RUN, BeltCommand.Request.FEED_ONE)
 
-        stopped = self._at_station()
-        if stopped is not None:
-            if self.station_box != stopped.name:
-                self.station_box = stopped.name
-                self.get_logger().info(
-                    f"정지 센서 도달 : {stopped.name} at x={stopped.pose.position.x:.3f}"
-                )
-            self.station_pub.publish(String(data=stopped.name))
+        occupied, name = self._station()
+        if occupied:
+            if self.station_box != name:
+                self.station_box = name
+                self.get_logger().info(f"정지 센서 도달 : {name}")
+            self.station_pub.publish(String(data=name))
             self.sensor_pub.publish(Bool(data=True))
             if self.mode == BeltCommand.Request.FEED_ONE:
                 self.mode = BeltCommand.Request.STOP

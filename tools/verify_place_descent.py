@@ -199,7 +199,7 @@ def _lot(cell) -> list[tuple[str, str, tuple[float, float, float]]]:
     from pathlib import Path
 
     seed = None
-    for base in (Path("/ws/src"), Path(__file__).resolve().parent.parent / "src"):
+    for base in (Path(__file__).resolve().parent.parent / "src", Path("/ws/src")):
         cand = base / "box_cell_mes/box_cell_mes/seed_items.json"
         if cand.exists():
             seed = cand

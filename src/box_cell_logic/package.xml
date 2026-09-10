@@ -12,6 +12,10 @@
   <depend>box_cell_msgs</depend>
   <depend>std_srvs</depend>
   <depend>geometry_msgs</depend>
+  <!-- twin_mirror가 실물 관절을 시뮬 컨트롤러로 밀어 넣는다 -->
+  <depend>sensor_msgs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>builtin_interfaces</depend>
 
   <depend>python3-yaml</depend>
 

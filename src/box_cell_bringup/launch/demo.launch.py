@@ -9,7 +9,13 @@
     논리      task_manager, pallet_manager, mes_client, conveyor_driver
 
 인자
-    hardware:=gazebo|mock   기본 gazebo. mock은 Gazebo 없이 MoveIt까지만.
+    hardware:=gazebo|mock|real
+                            기본 gazebo. mock은 Gazebo 없이 MoveIt까지만,
+                            real은 FAIRINO 드라이버로 실물 FR5를 문다
+                            (docs/digital_twin.md, docs/real_robot_bringup.md).
+    robot_ip:=<ip>          hardware:=real일 때 컨트롤러 주소. 기본 192.168.58.2.
+    twin:=true|false        기본 false. 실물 셀을 이 시뮬레이터에 비춘다
+                            (twin_mirror). hardware:=gazebo와 함께 쓴다.
     autostart:=true|false   false면 상태 기계가 IDLE에서 기다린다.
                             데모 시작 순간을 사람이 잡고 싶을 때 쓴다.
     rviz:=true|false        RViz 동시 실행
@@ -41,8 +47,14 @@ def generate_launch_description() -> LaunchDescription:
 
     hardware = LaunchConfiguration("hardware")
     autostart = LaunchConfiguration("autostart")
+    robot_ip = LaunchConfiguration("robot_ip")
     use_sim = PythonExpression(["'", hardware, "' == 'gazebo'"])
     sim_time = {"use_sim_time": use_sim}
+
+    # 드라이버의 sim/real 갈림. hardware 하나가 전부를 정한다.
+    # mock은 로봇도 실물도 없으므로 드라이버 쪽은 sim과 같이 둔다
+    # (붙일 박스가 없어 아무것도 붙지 않는다. 그것이 맞는 동작이다).
+    driver_mode = PythonExpression(["'real' if '", hardware, "' == 'real' else 'sim'"])
 
     gazebo = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(sim_share, "launch", "gazebo.launch.py")),
@@ -50,19 +62,21 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={"headless": LaunchConfiguration("headless")}.items(),
     )
 
-    # mock 모드에는 gz_ros2_control이 없으므로 controller_manager를 직접 띄운다.
-    mock_control = IncludeLaunchDescription(
+    # Gazebo 밖(mock, real)에는 gz_ros2_control이 없으므로 controller_manager를
+    # 직접 띄운다. 두 모드가 같은 파일을 쓴다. 다른 것은 URDF의 플러그인뿐이다.
+    control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
-                get_package_share_directory("box_cell_bringup"), "launch", "mock_control.launch.py"
+                get_package_share_directory("box_cell_bringup"), "launch", "control.launch.py"
             )
         ),
+        launch_arguments={"hardware": hardware, "robot_ip": robot_ip}.items(),
         condition=UnlessCondition(use_sim),
     )
 
     move_group = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(os.path.join(moveit_share, "launch", "move_group.launch.py")),
-        launch_arguments={"hardware": hardware}.items(),
+        launch_arguments={"hardware": hardware, "robot_ip": robot_ip}.items(),
     )
 
     motion = [
@@ -78,7 +92,9 @@ def generate_launch_description() -> LaunchDescription:
             executable="gripper_driver",
             name="gripper_driver",
             output="screen",
-            parameters=[sim_time, {"mode": "sim"}],
+            # sim이면 gz DetachableJoint, real이면 밸브 디지털 출력.
+            # 서비스(/gripper/vacuum)는 양쪽이 같다.
+            parameters=[sim_time, {"mode": driver_mode}],
         ),
         Node(
             package="box_cell_motion",
@@ -128,7 +144,7 @@ def generate_launch_description() -> LaunchDescription:
             executable="twin_bridge",
             name="twin_bridge",
             output="screen",
-            parameters=[sim_time, {"source": "sim"}],
+            parameters=[sim_time, {"source": driver_mode}],
         ),
         # Dry Run 채점기(기획서 D3). 운전을 지켜보며 처리량, 사이클 시간,
         # 예외 사유, 적재 정확도를 모아 /tmp/box_cell/dry_run.json에 쓴다.
@@ -195,7 +211,9 @@ def generate_launch_description() -> LaunchDescription:
             executable="conveyor_driver",
             name="conveyor_driver",
             output="screen",
-            parameters=[sim_time],
+            # sim이면 롤러 각속도, real이면 인버터 기동/정지와 광전 센서.
+            # /belt/command와 /conveyor/* 토픽은 양쪽이 같다.
+            parameters=[sim_time, {"mode": driver_mode}],
         ),
     ]
 
@@ -222,6 +240,18 @@ def generate_launch_description() -> LaunchDescription:
         condition=IfCondition(LaunchConfiguration("mes")),
     )
 
+    # 트윈 미러(선택). 실물 셀의 관절을 이 시뮬레이터에 그대로 비춘다.
+    # 기본은 꺼져 있다. 켜면 시뮬레이터가 실물을 따라 움직이는 화면이 된다.
+    # 실물 쪽으로는 아무것도 내지 않는다. docs/digital_twin.md 참고.
+    twin_mirror = Node(
+        package="box_cell_logic",
+        executable="twin_mirror",
+        name="twin_mirror",
+        output="screen",
+        parameters=[sim_time],
+        condition=IfCondition(LaunchConfiguration("twin")),
+    )
+
     rviz = Node(
         package="rviz2",
         executable="rviz2",
@@ -238,6 +268,10 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("hardware", default_value="gazebo"),
+            # 실물 컨트롤러 주소. hardware:=real일 때만 쓰인다.
+            DeclareLaunchArgument("robot_ip", default_value="192.168.58.2"),
+            # 실물 셀을 이 시뮬레이터에 비출 것인가(twin_mirror).
+            DeclareLaunchArgument("twin", default_value="false"),
             DeclareLaunchArgument("autostart", default_value="true"),
             DeclareLaunchArgument("rviz", default_value="false"),
             DeclareLaunchArgument("mes", default_value="true"),
@@ -247,13 +281,14 @@ def generate_launch_description() -> LaunchDescription:
             # 화면 없이 서버만 띄운다. 카메라는 그대로 돈다.
             DeclareLaunchArgument("headless", default_value="false"),
             gazebo,
-            mock_control,
+            control,
             move_group,
             *motion,
             *perception,
             *logic,
             task_manager,
             mes,
+            twin_mirror,
             rviz,
         ]
     )

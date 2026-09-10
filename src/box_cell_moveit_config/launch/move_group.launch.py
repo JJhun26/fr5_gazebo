@@ -19,11 +19,12 @@ from moveit_configs_utils import MoveItConfigsBuilder
 
 def setup(context, *_args, **_kwargs):
     hardware = LaunchConfiguration("hardware").perform(context)
+    robot_ip = LaunchConfiguration("robot_ip").perform(context)
     use_sim_time = hardware == "gazebo"
 
     moveit = (
         MoveItConfigsBuilder("box_cell", package_name="box_cell_moveit_config")
-        .robot_description(mappings={"hardware": hardware})
+        .robot_description(mappings={"hardware": hardware, "robot_ip": robot_ip})
         .robot_description_semantic(file_path="config/box_cell.srdf")
         .robot_description_kinematics(file_path="config/kinematics.yaml")
         .joint_limits(file_path="config/joint_limits.yaml")
@@ -70,6 +71,9 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("hardware", default_value="gazebo"),
+            # hardware:=real일 때 URDF의 fairino_hardware 플러그인에 넘어간다.
+            # move_group도 같은 robot_description을 써야 실물과 계획이 어긋나지 않는다.
+            DeclareLaunchArgument("robot_ip", default_value="192.168.58.2"),
             OpaqueFunction(function=setup),
         ]
     )

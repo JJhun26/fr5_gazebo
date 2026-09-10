@@ -33,6 +33,7 @@ from pathlib import Path
 
 import rclpy
 from box_cell_common.cell_geometry import CellGeometry
+from box_cell_common.paths import data_path
 from box_cell_msgs.msg import BoxPoseArray, CellState, PalletState
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -45,7 +46,7 @@ class DryRunScorer(Node):
         self.declare_parameter("duration_sec", 0.0)      # 0이면 끝까지 본다
         self.declare_parameter("target_cycle_sec", 20.0)
         self.declare_parameter("place_tolerance", 0.020)  # 기록 대비 허용 오차
-        self.declare_parameter("report", "/tmp/box_cell/dry_run.json")
+        self.declare_parameter("report", data_path("dry_run.json"))
         self.declare_parameter("report_every", 60.0)
 
         self.cell = CellGeometry()

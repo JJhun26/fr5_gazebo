@@ -22,6 +22,7 @@ import datetime as dt
 from pathlib import Path
 
 import rclpy
+from box_cell_common.paths import data_path
 from cv_bridge import CvBridge
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
@@ -41,7 +42,7 @@ class CameraNode(Node):
 
         self.declare_parameter("camera", "c3_scene")
         self.declare_parameter("image_topic", "")
-        self.declare_parameter("store", "/tmp/box_cell/photos")
+        self.declare_parameter("store", data_path("photos"))
         self.declare_parameter("jpeg_quality", 88)
         self.declare_parameter("max_width", 1280)     # 기록용은 줄여 저장한다
 

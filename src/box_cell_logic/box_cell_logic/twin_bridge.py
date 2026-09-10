@@ -38,6 +38,7 @@ import time
 from pathlib import Path
 
 import rclpy
+from box_cell_common.paths import data_path
 from box_cell_msgs.msg import BoxPoseArray, CellState, PalletState
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile
@@ -48,7 +49,7 @@ class TwinBridge(Node):
     def __init__(self) -> None:
         super().__init__("twin_bridge")
 
-        self.declare_parameter("out_file", "/tmp/box_cell/twin.json")
+        self.declare_parameter("out_file", data_path("twin.json"))
         self.declare_parameter("http_port", 8030)
         self.declare_parameter("serve_http", True)
         # 시뮬레이션인지 실물인지. 실물 셀에서 띄울 때 real로 바꾼다.

@@ -55,6 +55,12 @@ class GripperDriver(Node):
         self.declare_parameter("grasp_tilt", 0.35)      # rad. 약 20도
         self.declare_parameter("do_suck", 0)            # real 모드 디지털 출력 번호
         self.declare_parameter("do_release", 1)
+        # real 모드에서 밸브를 어디로 때릴 것인가.
+        #   topic  std_msgs/Bool을 do_topic으로 낸다. 그 토픽을 실제 I/O로
+        #          옮기는 것은 IO 게이트웨이 노드의 일이다(아직 없다).
+        #   none   아무것도 하지 않고 실패를 돌려준다. 배선 전 안전값이다.
+        self.declare_parameter("real_backend", "topic")
+        self.declare_parameter("do_topic", "/io/tool_do")
 
         self.mode = str(self.get_parameter("mode").value)
         self.cell = CellGeometry()
@@ -77,6 +83,15 @@ class GripperDriver(Node):
 
         self.state_pub = self.create_publisher(Bool, "/gripper/vacuum_state", 10)
         self.held_pub = self.create_publisher(String, "/sim/gripper/attached", 10)
+
+        # real 모드의 출구. 여기에 Bool 하나가 나가고, 그것을 24 V 출력으로
+        # 옮기는 것은 IO 게이트웨이의 일이다. 그 노드가 아직 없어도 이 토픽은
+        # 나가므로, 배선 전에 상위 로직의 타이밍을 그대로 확인할 수 있다.
+        self.do_pub = (
+            self.create_publisher(Bool, str(self.get_parameter("do_topic").value), 10)
+            if self.mode == "real"
+            else None
+        )
 
         # 새로 나타난 박스는 반드시 한 번 떼어 준다. 아래 _release_new 주석 참고.
         self._detached: set[str] = set()
@@ -149,17 +164,33 @@ class GripperDriver(Node):
         return res
 
     def _apply_real(self, on: bool) -> tuple[bool, str]:
-        """FAIRINO 컨트롤러의 툴 디지털 출력.
+        """ES45 밸브의 24 V 디지털 출력.
 
-        실물 배선이 붙기 전까지는 여기서 막는다(기획서 E 항목, 하드웨어 납기
-        의존). 시뮬레이터에서 검증한 로직은 이 함수만 채우면 그대로 돈다.
+        이 노드는 여기서 토픽 하나를 낼 뿐이다. 그 토픽을 실제 출력으로
+        옮기는 것(FAIRINO 컨트롤러의 툴 DO든, 별도 Modbus 모듈이든)은
+        IO 게이트웨이 노드의 일이고, 그 노드는 배선과 함께 온다.
+
+        왜 여기서 컨트롤러 서비스를 직접 부르지 않는가. 부르는 순간 이
+        노드가 특정 컨트롤러 모델의 서비스 이름과 타입에 묶인다. 셀에서
+        밸브를 어디에 물릴지는 아직 정해지지 않았다(기획서 E 항목).
+        토픽 한 겹을 두면 그 결정이 이 파일 밖으로 나간다.
+
+        되돌리는 값은 여전히 "명령을 냈다"는 뜻이다. ES45에는 피드백이
+        없다. 그 성질은 sim/real 어느 쪽에서도 바꾸지 않는다.
         """
         do = self.get_parameter("do_suck" if on else "do_release").value
-        self.get_logger().warn(
-            f"real 모드 미구현. DO {do}를 {'set' if on else 'pulse'} 해야 한다. "
-            "fairino_hardware의 SetToolDO 서비스를 물릴 자리다."
-        )
-        return False, "real 모드 미구현"
+        backend = str(self.get_parameter("real_backend").value)
+        if backend != "topic" or self.do_pub is None:
+            self.get_logger().warn(
+                f"real_backend={backend}. DO {do}를 때리지 않았다. "
+                "배선이 붙으면 real_backend:=topic으로 두고 IO 게이트웨이를 띄운다."
+            )
+            return False, f"real 모드 출력 없음 (real_backend={backend})"
+
+        self.do_pub.publish(Bool(data=bool(on)))
+        detail = f"진공 {'ON' if on else 'OFF'} 명령 (DO {do})"
+        self.get_logger().info(detail)
+        return True, detail
 
     # ------------------------------------------------------------------ 흡착 판정
     def _pick_target(self) -> str | None:

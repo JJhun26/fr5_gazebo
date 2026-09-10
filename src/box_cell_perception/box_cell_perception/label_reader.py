@@ -28,10 +28,10 @@ x=302를 내놓았고, 로봇은 아무것도 없는 자리로 내려갔다.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
 import numpy as np
 import rclpy
+from box_cell_common.paths import data_dir
 from box_cell_msgs.msg import LabelCorners
 from cv_bridge import CvBridge
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -76,7 +76,7 @@ class LabelReader(Node):
         self.latest: np.ndarray | None = None
         self.latest_stamp: float = 0.0      # 촬영 시각(헤더). 수신 시각이 아니다.
         self.detector = cv2.QRCodeDetector()
-        self._fail_dir = Path("/tmp/box_cell/read_fail")
+        self._fail_dir = data_dir() / "read_fail"
         self._fail_n = 0
 
         # 서비스가 새 프레임을 기다리는 동안에도 영상 콜백은 돌아야 한다.
