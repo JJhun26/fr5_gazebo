@@ -143,6 +143,42 @@ GPU가 아예 없으면 돌기는 한다. 카메라 4대가 못 따라와 실시
 
 ---
 
+## mock 모드로 실제 확인한 것
+
+호스트 설치가 막힌 환경(ROS apt 저장소가 방화벽에 걸리는 곳)에서 conda
+(RoboStack `robostack-jazzy` 채널)로 같은 Jazzy를 깔아 한 번 끝까지 돌려
+봤다. **apt 경로와 같은 환경은 아니다.** 아래는 코드가 도는지에 대한
+확인이지 `install_deps.sh`가 도는지에 대한 확인이 아니다.
+
+    11개 패키지 colcon 빌드      전부 통과
+    controller_manager          mock_components/GenericSystem 적재, 100 Hz
+    컨트롤러                     joint_state_broadcaster, joint_trajectory_controller 활성
+    move_group                  OMPL + Pilz(PTP/LIN/CIRC) 적재, pick_ik 동작
+    scene_publisher             고정 충돌체 18개 등록
+    MES                         FastAPI :8020, 품목 8건 적재, mes_client 연결
+    twin_bridge                 :8030/twin 에 JSON, source=sim
+    verify_place_descent.py     자리 20개 전부 하강 100%,
+                                실제 로트 6단계도 전부 100%
+                                해가 전부 j4 -88.3~-84.6, j5 +90 계열에 들어온다
+    /pick_place 액션             APPROACH->...->DONE 완주, 1사이클 13.7초
+    twin_mirror                 /real/joint_states를 넣으니 mock 로봇이
+                                그 값으로 정확히 따라왔다
+    BOX_CELL_DATA_DIR           산출물 4종이 지정한 디렉터리에 쌓였다
+
+`/feeder/next`가 없다며 WAIT_BOX에서 도는 것은 정상이다. mock에는 Gazebo가
+없으니 컨베이어 물리도 없고 박스가 정지 센서에 도달할 수 없다.
+
+이때 두 가지를 고쳤다.
+
+1. `box_cell_description/CMakeLists.txt`가 없는 `launch` 디렉터리를 설치
+   목록에 적고 있었다. `ament_cmake_symlink_install`은 없는 디렉터리에
+   에러를 낸다(평범한 `install(DIRECTORY)`는 조용히 넘어간다). 새로 클론한
+   워크스페이스의 **첫 빌드가 여기서 멈춘다.**
+2. `pick_ik`는 conda 채널에 없어 소스로 빌드했다. apt에는
+   `ros-jazzy-pick-ik`가 있으므로 24.04 호스트에서는 해당 없다.
+
+---
+
 ## 자주 걸리는 것
 
 **`ros2: command not found`** — `source scripts/setup_env.sh`를 안 했다.
@@ -170,6 +206,12 @@ ROS를 여러 버전 쓸 생각이면 넣지 않는 편이 낫다.
 
 **빌드가 메모리로 죽는다** — `colcon build --parallel-workers 2`.
 MoveIt이 붙는 C++ 패키지가 한 번에 여러 개 돌면 8 GB로는 모자랄 수 있다.
+
+**`error: option --editable not recognized`** — setuptools 80 이상에서
+`colcon build --symlink-install`이 깨진다(`setup.py develop`이 없어졌다).
+24.04의 apt 파이썬은 68이라 해당 없지만, pip로 setuptools를 올렸으면
+`pip3 install --user "setuptools<80"`으로 되돌리거나 `--symlink-install`을
+빼고 빌드한다.
 
 ---
 
